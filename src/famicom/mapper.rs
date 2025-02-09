@@ -1,6 +1,6 @@
 use crate::{Address, AddressMask, BusDevice};
 
-use super::rom::{self, NametableLayout, RomImage};
+use super::rom::{NametableLayout, RomImage};
 
 pub fn mapper_for(rom_image: RomImage) -> impl BusDevice {
     match rom_image.mapper {

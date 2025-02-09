@@ -159,8 +159,8 @@ impl RomImage {
     }
 
     fn load_nes2_image<R: io::Read + io::Seek>(
-        prg_rom_size: u8,
-        chr_rom_size: u8,
+        _prg_rom_size: u8,
+        _chr_rom_size: u8,
         flags6: Flags6,
         flags7: Flags7,
         mut reader: R,
@@ -173,13 +173,13 @@ impl RomImage {
         }
 
         let mapper_msb = reader.read_u8()?;
-        let mapper: u16 = (mapper_msb as u16 & 0xf) << 8
+        let _mapper: u16 = (mapper_msb as u16 & 0xf) << 8
             | (flags7.mapper_mid_nibble() as u16) << 4
             | flags6.mapper_low_nibble() as u16;
-        let submapper = mapper_msb >> 4;
-        let rom_size_msb = reader.read_u8()?;
+        let _submapper = mapper_msb >> 4;
+        let _rom_size_msb = reader.read_u8()?;
 
-        unimplemented!()
+        todo!()
     }
 }
 

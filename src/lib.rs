@@ -92,77 +92,8 @@ impl AddressMask {
     }
 }
 
-enum Operands {
-    None,
-    Operand(u8),
-    Address(Address),
-}
-
-mod mos6502 {
-    use strum_macros::EnumString;
-
-    #[derive(Debug, PartialEq, EnumString)]
-    pub enum Instruction {
-        BRK,
-        JMP,
-        #[strum(props(Mnemomic = "JMP"))]
-        JIA,
-        LDA,
-        LDX,
-        LDY,
-        STA,
-        STX,
-        STY,
-        Illegal,
-    }
-
-    pub enum OpCode {
-        Absolute(Instruction),
-        AbsoluteIndexedIndrectX(Instruction),
-        AbsoluteIndexedX(Instruction),
-        AbsoluteIndexedY(Instruction),
-        AbsoluteIndirect(Instruction),
-        Accumulator(Instruction),
-        Immediate(Instruction),
-        Implied(Instruction),
-        Jam,
-        ProgramCounterRelative(Instruction),
-        Stack(Instruction),
-        ZeroPage(Instruction),
-        ZeroPageIndexedIndirectX(Instruction),
-        ZeroPageIndexedX(Instruction),
-        ZeroPageIndexedY(Instruction),
-        ZeroPageIndirect(Instruction),
-        ZeroPageIndirectIndexedY(Instruction),
-    }
-
-    impl OpCode {
-        pub fn as_instruction(self) -> Instruction {
-            match self {
-                OpCode::Absolute(instruction) => instruction,
-                OpCode::AbsoluteIndexedIndrectX(instruction) => instruction,
-                OpCode::AbsoluteIndexedX(instruction) => instruction,
-                OpCode::AbsoluteIndexedY(instruction) => instruction,
-                OpCode::AbsoluteIndirect(instruction) => instruction,
-                OpCode::Accumulator(instruction) => instruction,
-                OpCode::Immediate(instruction) => instruction,
-                OpCode::Implied(instruction) => instruction,
-                OpCode::ProgramCounterRelative(instruction) => instruction,
-                OpCode::Stack(instruction) => instruction,
-                OpCode::ZeroPage(instruction) => instruction,
-                OpCode::ZeroPageIndexedIndirectX(instruction) => instruction,
-                OpCode::ZeroPageIndexedX(instruction) => instruction,
-                OpCode::ZeroPageIndexedY(instruction) => instruction,
-                OpCode::ZeroPageIndirect(instruction) => instruction,
-                OpCode::ZeroPageIndirectIndexedY(instruction) => instruction,
-                _ => Instruction::Illegal,
-            }
-        }
-    }
-}
-
 #[derive(Debug)]
-pub enum BusMode {
+pub enum BusDirection {
     Write,
     Read,
 }
@@ -172,7 +103,7 @@ pub trait Bus {
     fn write(&mut self, address: Address, data: u8);
 }
 
-struct System<CPU: Cpu, Mapper: BusDevice> {
+pub struct System<CPU: Cpu, Mapper: BusDevice> {
     cpu: CPU,
     cpu_divisor: u8,
     bus: SystemBus<Mapper>,
@@ -296,7 +227,6 @@ mod tests {
         let f = File::open("nestest.log").unwrap();
         let reader = io::BufReader::new(f);
         let lines = reader.lines();
-        let mut current_opcode = 0;
 
         for line in lines {
             let line = line.unwrap();

@@ -2,7 +2,6 @@ use std::collections::VecDeque;
 
 use crate::{
     isa6502::{addressing::*, *},
-    mos6502::{Instruction, OpCode},
     *,
 };
 
@@ -11,7 +10,7 @@ pub mod rom;
 
 #[derive(Debug)]
 pub struct RP2A03 {
-    timing: VecDeque<(fn(&mut Self), BusMode, fn(&mut Self))>,
+    timing: VecDeque<(fn(&mut Self), BusDirection, fn(&mut Self))>,
     pc: Address,
     stack: u8,
     bus_address: Address,
@@ -52,22 +51,26 @@ impl RP2A03 {
         self.stack = 0;
         self.p.set(StatusFlags::Default, true);
         self.timing.clear();
-        self.queue_microcode(Self::nop, BusMode::Read, Self::nop);
-        self.queue_microcode(Self::nop, BusMode::Read, Self::nop);
-        self.queue_microcode(Self::stack_push, BusMode::Read, Self::nop);
-        self.queue_microcode(Self::stack_push, BusMode::Read, Self::nop);
-        self.queue_microcode(Self::stack_push, BusMode::Read, Self::nop);
-        self.queue_microcode(Self::vector::<0xFC>, BusMode::Read, Self::set_pcl);
-        self.queue_microcode(Self::vector::<0xFD>, BusMode::Read, Self::set_pch);
-        self.queue_microcode(Self::read_pc, BusMode::Read, Self::decode_opcode);
+        self.queue_microcode(Self::nop, BusDirection::Read, Self::nop);
+        self.queue_microcode(Self::nop, BusDirection::Read, Self::nop);
+        self.queue_microcode(Self::stack_push, BusDirection::Read, Self::nop);
+        self.queue_microcode(Self::stack_push, BusDirection::Read, Self::nop);
+        self.queue_microcode(Self::stack_push, BusDirection::Read, Self::nop);
+        self.queue_microcode(Self::vector::<0xFC>, BusDirection::Read, Self::set_pcl);
+        self.queue_microcode(Self::vector::<0xFD>, BusDirection::Read, Self::set_pch);
+        self.queue_microcode(Self::read_pc, BusDirection::Read, Self::decode_opcode);
     }
 
     fn decode_opcode(&mut self) {
         let opcode = self.bus_data;
         // let fk = ((opcode & 0xF0) >> 4, opcode, opcode & 0x3);
         match ((opcode & 0xF0) >> 4, opcode, opcode & 0x3) {
-            (_, 0x4C, _) => self.decode_addressing::<Branch>(opcode, Self::jmp),
-            (0x8, _, 2) => self.decode_addressing::<Read>(opcode, Self::stx),
+            (_, 0x4C, _) => {
+                self.queue_microcode(Self::read_pc, BusDirection::Read, Self::push_operand);
+                self.queue_microcode(Self::read_pc, BusDirection::Read, Self::jmp);
+                self.queue_microcode(Self::read_pc, BusDirection::Read, Self::decode);
+            }
+            (0x8, _, 2) => self.decode_addressing::<Write>(opcode, Self::stx),
             (0xA, _, 2) => self.decode_addressing::<Read>(opcode, Self::ldx),
 
             _ => unimplemented!("No decode for {:02X}", opcode),
@@ -77,13 +80,16 @@ impl RP2A03 {
     fn decode_addressing<IO: IOMode>(&mut self, opcode: u8, instruction: fn(&mut Self))
     where
         Absolute: AddressingMode<Self, IO>,
+        Accumulator: AddressingMode<Self, IO>,
+        Immediate: AddressingMode<Self, IO>,
+        ZeroPage: AddressingMode<Self, IO>,
     {
         self.instruction = instruction;
 
         match opcode & 0x1f {
             0x00 | 0x02 => Immediate::enqueue(self),
             0x01 | 0x03 => unimplemented!("(d,x)"),
-            0x04..=0x07 => unimplemented!("d"),
+            0x04..=0x07 => ZeroPage::enqueue(self),
             0x08 | 0x0A => Accumulator::enqueue(self),
             0x09 | 0x0B => unimplemented!("#i"),
             0x0C..=0x0F => Absolute::enqueue(self),
@@ -285,12 +291,12 @@ impl Cpu for RP2A03 {
     fn cycle(&mut self, bus: &mut impl Bus) {
         self.cycles += 1;
         match self.timing.pop_front().unwrap() {
-            (pre_bus, BusMode::Read, post_bus) => {
+            (pre_bus, BusDirection::Read, post_bus) => {
                 pre_bus(self);
                 self.bus_data = bus.read(self.bus_address);
                 post_bus(self);
             }
-            (pre_bus, BusMode::Write, post_bus) => {
+            (pre_bus, BusDirection::Write, post_bus) => {
                 pre_bus(self);
                 bus.write(self.bus_address, self.bus_data);
                 post_bus(self);
@@ -301,7 +307,7 @@ impl Cpu for RP2A03 {
     fn queue_microcode(
         &mut self,
         pre_bus: fn(&mut Self),
-        bus_mode: BusMode,
+        bus_mode: BusDirection,
         post_bus: fn(&mut Self),
     ) {
         self.timing.push_back((pre_bus, bus_mode, post_bus));
@@ -323,6 +329,10 @@ impl Cpu for RP2A03 {
 
     fn instruction(&mut self) {
         (self.instruction)(self)
+    }
+
+    fn zeropage(&mut self) {
+        self.bus_address = Address(self.bus_data as u16);
     }
 }
 

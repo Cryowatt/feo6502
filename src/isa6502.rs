@@ -1,6 +1,6 @@
 use bitflags::bitflags;
 
-use crate::{Bus, BusMode};
+use crate::{Bus, BusDirection};
 
 bitflags! {
     #[derive(Debug)]
@@ -22,13 +22,15 @@ pub trait Cpu {
     fn queue_microcode(
         &mut self,
         pre_bus: fn(&mut Self),
-        bus_mode: BusMode,
+        bus_mode: BusDirection,
         post_bus: fn(&mut Self),
     );
     fn read_pc(&mut self);
     fn push_operand(&mut self);
     fn instruction(&mut self);
     fn decode(&mut self);
+    fn zeropage(&mut self);
+
     // fn read_pc_inc(&mut self) -> BusMode;
     // fn decode(&mut self) -> BusMode;
     // fn read_operand(&mut self) -> BusMode;
@@ -36,35 +38,27 @@ pub trait Cpu {
 }
 
 pub mod addressing {
-    use crate::BusMode;
+    use crate::BusDirection;
 
     use super::Cpu;
 
-    pub struct Branch;
     pub struct Read;
     pub struct ReadWrite;
     pub struct Write;
 
     pub trait IOMode {}
 
-    impl IOMode for Branch {}
     impl IOMode for Read {}
     impl IOMode for ReadWrite {}
     impl IOMode for Write {}
+
+    fn nop<CPU: Cpu>(_: &mut CPU) {}
 
     pub trait AddressingMode<Cpu, Mode: IOMode> {
         fn enqueue(cpu: &mut Cpu);
     }
 
     pub struct Absolute;
-
-    impl<CPU: Cpu> AddressingMode<CPU, Branch> for Absolute {
-        fn enqueue(cpu: &mut CPU) {
-            cpu.queue_microcode(CPU::read_pc, BusMode::Read, CPU::push_operand);
-            cpu.queue_microcode(CPU::read_pc, BusMode::Read, CPU::instruction);
-            cpu.queue_microcode(CPU::read_pc, BusMode::Read, CPU::decode);
-        }
-    }
 
     impl<CPU> AddressingMode<CPU, Read> for Absolute {
         fn enqueue(cpu: &mut CPU) {
@@ -86,13 +80,41 @@ pub mod addressing {
         }
     }
 
+    impl<CPU> AddressingMode<CPU, Write> for Accumulator {
+        fn enqueue(cpu: &mut CPU) {
+            todo!()
+        }
+    }
+
     pub struct Immediate;
 
     impl<CPU: Cpu> AddressingMode<CPU, Read> for Immediate {
         fn enqueue(cpu: &mut CPU) {
+            cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::instruction);
+            cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::decode);
+        }
+    }
+
+    impl<CPU: Cpu> AddressingMode<CPU, Write> for Immediate {
+        fn enqueue(cpu: &mut CPU) {
+            cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::instruction);
+            cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::decode);
+        }
+    }
+
+    pub struct ZeroPage;
+
+    impl<CPU: Cpu> AddressingMode<CPU, Read> for ZeroPage {
+        fn enqueue(cpu: &mut CPU) {
             todo!()
-            // cpu.queue_microcode(CPU::read_operand_execute);
-            // cpu.queue_microcode(CPU::decode);
+        }
+    }
+
+    impl<CPU: Cpu> AddressingMode<CPU, Write> for ZeroPage {
+        fn enqueue(cpu: &mut CPU) {
+            cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::zeropage);
+            cpu.queue_microcode(CPU::instruction, BusDirection::Write, nop);
+            cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::decode);
         }
     }
 }
