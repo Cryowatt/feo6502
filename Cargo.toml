@@ -1,0 +1,13 @@
+[package]
+name = "feo6502"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bitfields = "0.12"
+bitflags = "2.8"
+byteorder = "1.5"
+strum = "0.26"
+strum_macros = "0.26"
+
+[dev-dependencies]
