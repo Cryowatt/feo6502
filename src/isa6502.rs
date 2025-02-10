@@ -3,7 +3,7 @@ use bitflags::bitflags;
 use crate::{Bus, BusDirection};
 
 bitflags! {
-    #[derive(Debug)]
+    #[derive(Debug, Clone, Copy)]
     pub struct StatusFlags:u8{
         // NV1BDIZC
         const C = 0b0000_0001;

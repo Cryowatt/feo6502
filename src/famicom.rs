@@ -88,6 +88,10 @@ impl RP2A03 {
 
     fn decode_branch(&mut self, opcode: u8) {
         let should_branch = match opcode {
+            0x10 => !self.p.contains(StatusFlags::N),
+            0x30 => self.p.contains(StatusFlags::N),
+            0x50 => !self.p.contains(StatusFlags::V),
+            0x70 => self.p.contains(StatusFlags::V),
             0x90 => !self.p.contains(StatusFlags::C),
             0xB0 => self.p.contains(StatusFlags::C),
             0xD0 => !self.p.contains(StatusFlags::Z),
@@ -161,12 +165,16 @@ impl RP2A03 {
 
     fn set_value_flags(&mut self, value: u8) {
         self.p.set(StatusFlags::Z, value == 0);
-        self.p.set(StatusFlags::N, value > 0x80);
+        self.p.set(StatusFlags::N, (value as i8) < 0);
     }
 
     fn bit(&mut self) {
         let result = self.a & self.bus_data;
-        self.set_value_flags(self.bus_data);
+        let flags = StatusFlags::N | StatusFlags::V;
+        self.p.remove(flags);
+        self.p.insert(StatusFlags::from_bits_retain(
+            (flags.bits() & self.bus_data),
+        ));
         self.p.set(StatusFlags::Z, result == 0);
     }
 
