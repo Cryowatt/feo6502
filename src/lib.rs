@@ -13,8 +13,20 @@ impl Address {
         self.0 += 1;
     }
 
+    fn offset(&mut self, offset: i8) {
+        self.0 = self.0.wrapping_add_signed(offset as i16);
+    }
+
+    fn high(&mut self) -> u8 {
+        (self.0 & 0xff00 >> 8) as u8
+    }
+
     fn set_high(&mut self, high: u8) {
         self.0 = (self.0 & 0xff) | (high as u16) << 8;
+    }
+
+    fn low(&mut self) -> u8 {
+        (self.0 & 0xff) as u8
     }
 
     fn set_low(&mut self, low: u8) {
@@ -235,15 +247,17 @@ mod tests {
                 .inspect_err(|_| eprintln!("Failed to parse nestest.log {}", line))
                 .unwrap();
 
-            let log = loop {
+            let mut log = loop {
                 system.clock_pulse();
                 let log = system.log();
-
+                // Opcode isn't fetched until the following cycle, so this is a cheap hack to correct the opcode
                 if log.cycles == expected_log.cycles {
-                    println!("{}", log);
                     break log;
                 }
             };
+
+            log.opcode = system.bus.read(log.pc);
+            println!("{}", log);
 
             assert_eq!(
                 expected_log.pc, log.pc,

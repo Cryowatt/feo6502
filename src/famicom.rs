@@ -63,18 +63,45 @@ impl RP2A03 {
 
     fn decode_opcode(&mut self) {
         let opcode = self.bus_data;
-        // let fk = ((opcode & 0xF0) >> 4, opcode, opcode & 0x3);
-        match ((opcode & 0xF0) >> 4, opcode, opcode & 0x3) {
-            (_, 0x4C, _) => {
-                self.queue_microcode(Self::read_pc, BusDirection::Read, Self::push_operand);
-                self.queue_microcode(Self::read_pc, BusDirection::Read, Self::jmp);
-                self.queue_microcode(Self::read_pc, BusDirection::Read, Self::decode);
-            }
-            (0x8, _, 2) => self.decode_addressing::<Write>(opcode, Self::stx),
-            (0xA, _, 2) => self.decode_addressing::<Read>(opcode, Self::ldx),
+        self.opcode = opcode;
 
-            _ => unimplemented!("No decode for {:02X}", opcode),
+        if opcode & 0x1F == 0x10 {
+            self.decode_branch(opcode);
+        } else {
+            // let fk = ((opcode & 0xF0) >> 4, opcode, opcode & 0x3);
+            match ((opcode & 0xF0) >> 4, opcode, opcode & 0x3) {
+                (_, 0x20, _) => self.queue_jsr(),
+                (_, 0x38, _) => self.decode_addressing::<Read>(opcode, Self::sec),
+                (_, 0x4C, _) => self.queue_jmp(),
+                (_, 0xEA, _) => self.decode_addressing::<Read>(opcode, Self::nop),
+                (0x8, _, 2) => self.decode_addressing::<Write>(opcode, Self::stx),
+                (0xA, _, 2) => self.decode_addressing::<Read>(opcode, Self::ldx),
+
+                _ => unimplemented!("No decode for {:02X}", opcode),
+            }
         }
+    }
+
+    fn decode_branch(&mut self, opcode: u8) {
+        let should_branch = match opcode {
+            0xB0 => self.p.contains(StatusFlags::C),
+            _ => todo!(),
+        };
+
+        self.queue_microcode(Self::read_pc, BusDirection::Read, Self::push_operand);
+
+        if should_branch {
+            self.queue_microcode(Self::nop, BusDirection::Read, |cpu| {
+                cpu.pc.offset(cpu.operand.0 as i8);
+                cpu.bus_address.set_low(cpu.pc.low());
+
+                if cpu.pc != cpu.bus_address {
+                    cpu.queue_microcode(Self::nop, BusDirection::Read, Self::nop);
+                }
+            });
+        }
+
+        self.queue_microcode(Self::read_pc, BusDirection::Read, Self::decode_opcode);
     }
 
     fn decode_addressing<IO: IOMode>(&mut self, opcode: u8, instruction: fn(&mut Self))
@@ -82,6 +109,7 @@ impl RP2A03 {
         Absolute: AddressingMode<Self, IO>,
         Accumulator: AddressingMode<Self, IO>,
         Immediate: AddressingMode<Self, IO>,
+        Implied: AddressingMode<Self, IO>,
         ZeroPage: AddressingMode<Self, IO>,
     {
         self.instruction = instruction;
@@ -90,22 +118,22 @@ impl RP2A03 {
             0x00 | 0x02 => Immediate::enqueue(self),
             0x01 | 0x03 => unimplemented!("(d,x)"),
             0x04..=0x07 => ZeroPage::enqueue(self),
-            0x08 | 0x0A => Accumulator::enqueue(self),
+            0x08 | 0x0A => Implied::enqueue(self),
             0x09 | 0x0B => unimplemented!("#i"),
             0x0C..=0x0F => Absolute::enqueue(self),
             0x10 | 0x12 => unimplemented!("*+d"),
             0x11 | 0x13 => unimplemented!("(d),y"),
             0x14..=0x17 => unimplemented!("d,x/y"),
-            0x18 | 0x1A => unimplemented!(""),
+            0x18 | 0x1A => Implied::enqueue(self),
             0x19 | 0x1B => unimplemented!("a,y"),
             0x1C..=0x1F => unimplemented!("a,x"),
             _ => unreachable!(),
         }
-
-        self.opcode = opcode;
     }
 
-    fn nop(&mut self) {}
+    fn read_stack(&mut self) {
+        self.bus_address = Address(0x100 | self.stack as u16);
+    }
 
     fn stack_push(&mut self) {
         self.bus_address = Address(0x100 | self.stack as u16);
@@ -124,150 +152,6 @@ impl RP2A03 {
         self.pc.set_high(self.bus_data);
     }
 
-    // fn read_pc_null(&mut self) -> BusOperation {
-    //     self.bus_address = self.pc;
-    //     self.op = |_| {};
-    //     BusOperation::Read
-    //     // BusOperation::ReadNull
-    // }
-
-    // fn read_stack_null(&mut self) -> BusOperation {
-    //     self.bus_address = Address(0x100 | self.stack as u16);
-    //     self.stack = self.stack.wrapping_sub(1);
-    //     self.op = |_| {};
-    //     BusOperation::Read
-    //     // BusOperation::ReadNull
-    // }
-    // fn read_vector_pch<const ABL: u8>(&mut self) -> BusOperation {
-    //     self.bus_address = Address(0xFF00 | ABL as u16);
-    //     self.op = |cpu| cpu.pc.set_high(cpu.bus_data);
-    //     BusOperation::Read
-    //     // BusOperation::ReadPCH
-    // }
-
-    // fn read_vector_pcl<const ABL: u8>(&mut self) -> BusOperation {
-    //     self.bus_address = Address(0xFF00 | ABL as u16);
-    //     self.op = |cpu| cpu.pc.set_low(cpu.bus_data);
-    //     BusOperation::Read
-    //     // BusOperation::ReadPCL
-    // }
-
-    // pub fn decode_opcode(opcode: u8) -> Result<mos6502::OpCode, u8> {
-    //     if opcode & 0b0001_1111 == 0x10 {
-    //         Self::decode_branch(opcode)
-    //     } else {
-    //         let category = opcode & 0b11;
-    //         match category {
-    //             0 => Self::decode_control(opcode),
-    //             1 => Self::decode_alu(opcode),
-    //             2 => Self::decode_rmw(opcode),
-    //             _ => Self::decode_illegal(opcode),
-    //         }
-    //     }
-    // }
-
-    // fn decode_control(opcode: u8) -> Result<mos6502::OpCode, u8> {
-    //     let instruction = if opcode < 0x80 {
-    //         match opcode {
-    //             // 0x00 => Instruction::BRK,
-    //             0x4c => Instruction::JMP,
-    //             0x6c => Instruction::JIA,
-    //             _ => panic!("Missing control opcode {:02X}", opcode),
-    //         }
-    //     } else {
-    //         panic!("Missing control opcode {:02X}", opcode)
-    //     };
-
-    //     Ok(match opcode >> 2 & 0xf {
-    //         0 => OpCode::Immediate(instruction),
-    //         1 => OpCode::ZeroPage(instruction),
-    //         2 => OpCode::Implied(instruction),
-    //         3 => OpCode::Absolute(instruction),
-    //         // 4 => OpCode::ProgramCounterRelative(instruction),
-    //         5 => OpCode::ZeroPageIndexedX(instruction),
-    //         6 => OpCode::Implied(instruction),
-    //         _ => OpCode::AbsoluteIndexedX(instruction),
-    //     })
-    // }
-
-    // fn decode_branch(opcode: u8) -> Result<mos6502::OpCode, u8> {
-    //     Err(opcode)
-    // }
-
-    // fn decode_alu(opcode: u8) -> Result<mos6502::OpCode, u8> {
-    //     match opcode {
-    //         _ => panic!("Missing ALU opcode {:02X}", opcode),
-    //     }
-    // }
-
-    // fn decode_rmw(opcode: u8) -> Result<mos6502::OpCode, u8> {
-    //     let instruction = match opcode {
-    //         0xA2 => Instruction::LDX,
-    //         _ => panic!("Missing RMW opcode {:02X}", opcode),
-    //     };
-
-    //     Ok(match opcode >> 2 & 0xf {
-    //         0 => OpCode::Immediate(instruction),
-    //         1 => OpCode::ZeroPage(instruction),
-    //         // 2 => OpCode::Implied(instruction),
-    //         // 3 => OpCode::Absolute(instruction),
-    //         4 => OpCode::Jam,
-    //         // 5 => OpCode::ZeroPageIndexedX(instruction),
-    //         // 6 => OpCode::Implied(instruction),
-    //         _ => OpCode::AbsoluteIndexedX(instruction),
-    //     })
-    // }
-
-    // fn decode_illegal(opcode: u8) -> Result<mos6502::OpCode, u8> {
-    //     Err(opcode)
-    // }
-
-    // if opcode == 0 {
-    //     Ok(OpCode::Stack(Instruction::BRK))
-    // } else if opcode & 0b0001_1111 == 0b0001_0000 {
-    //     // Branch operations
-    //     unimplemented!("Branch operation decode");
-    // } else if opcode & 0b1110_0000 == 0b1010_0000 {
-    //     let destination = match opcode & 0b111 {
-    //         0 => Ok(Instruction::LDY),
-    //         1 => Ok(Instruction::LDA),
-    //         2 => Ok(Instruction::LDX),
-    //         _ => Err(opcode),
-    //     }?;
-    //     match opcode {
-    //         0xa0 => Ok(OpCode::Immediate(destination)),
-    //         0xa1 => Ok(OpCode::AbsoluteIndexedX(destination)),
-    //         0xa2 => Ok(OpCode::Immediate(destination)),
-    //         0xa4 => Ok(OpCode::ZeroPage(destination)),
-    //         0xa5 => Ok(OpCode::ZeroPage(destination)),
-    //         0xa6 => Ok(OpCode::ZeroPage(destination)),
-    //         0xa8 => Ok(OpCode::Implied(destination)),
-    //         0xa9 => Ok(OpCode::Immediate(destination)),
-    //         0xaa => Ok(OpCode::Implied(destination)),
-    //         0xac => Ok(OpCode::Absolute(destination)),
-    //         0xad => Ok(OpCode::Absolute(destination)),
-    //         0xae => Ok(OpCode::Absolute(destination)),
-
-    //         0xb1 => Ok(OpCode::AbsoluteIndexedY(destination)),
-    //         0xb4 => Ok(OpCode::ZeroPageIndexedX(destination)),
-    //         0xb5 => Ok(OpCode::ZeroPageIndexedX(destination)),
-    //         0xb6 => Ok(OpCode::ZeroPageIndexedY(destination)),
-    //         0xb9 => Ok(OpCode::AbsoluteIndexedY(destination)),
-    //         0xba => Ok(OpCode::Implied(destination)),
-    //         0xbc => Ok(OpCode::AbsoluteIndexedX(destination)),
-    //         0xbd => Ok(OpCode::AbsoluteIndexedX(destination)),
-    //         0xbe => Ok(OpCode::AbsoluteIndexedY(destination)),
-    //         _ => Err(opcode),
-    //     }
-    // } else {
-    //     match opcode {
-    //         0x00 => Ok(OpCode::Stack(Instruction::BRK)),
-    //         0x4C => Ok(OpCode::Absolute(Instruction::JMP)),
-    //         _ => Err(opcode),
-    //     }
-    // }
-    // }
-
     fn set_value_flags(&mut self, value: u8) {
         self.p.set(StatusFlags::Z, value == 0);
         self.p.set(StatusFlags::N, value > 0x80);
@@ -284,6 +168,10 @@ impl RP2A03 {
 
     fn stx(&mut self) {
         self.bus_data = self.x;
+    }
+
+    fn sec(&mut self) {
+        self.p.set(StatusFlags::C, true);
     }
 }
 
@@ -317,6 +205,8 @@ impl Cpu for RP2A03 {
         self.decode_opcode();
     }
 
+    fn nop(&mut self) {}
+
     fn read_pc(&mut self) {
         self.bus_address = self.pc;
         self.pc.increment();
@@ -333,6 +223,32 @@ impl Cpu for RP2A03 {
 
     fn zeropage(&mut self) {
         self.bus_address = Address(self.bus_data as u16);
+    }
+
+    fn queue_jsr(&mut self) {
+        self.queue_microcode(Self::read_pc, BusDirection::Read, Self::push_operand);
+        self.queue_microcode(Self::read_stack, BusDirection::Read, Self::nop);
+        self.queue_microcode(
+            |cpu| cpu.bus_data = cpu.pc.high(),
+            BusDirection::Write,
+            Self::stack_push,
+        );
+        self.queue_microcode(
+            |cpu| cpu.bus_data = cpu.pc.low(),
+            BusDirection::Write,
+            Self::stack_push,
+        );
+        self.queue_microcode(Self::read_pc, BusDirection::Read, |cpu| {
+            cpu.pc = Address((cpu.bus_data as u16) << 8 | cpu.operand.0 as u16)
+        });
+
+        self.queue_microcode(Self::read_pc, BusDirection::Read, Self::decode);
+    }
+
+    fn queue_jmp(&mut self) {
+        self.queue_microcode(Self::read_pc, BusDirection::Read, Self::push_operand);
+        self.queue_microcode(Self::read_pc, BusDirection::Read, Self::jmp);
+        self.queue_microcode(Self::read_pc, BusDirection::Read, Self::decode);
     }
 }
 

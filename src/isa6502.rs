@@ -25,6 +25,9 @@ pub trait Cpu {
         bus_mode: BusDirection,
         post_bus: fn(&mut Self),
     );
+    fn queue_jsr(&mut self);
+    fn queue_jmp(&mut self);
+    fn nop(&mut self);
     fn read_pc(&mut self);
     fn push_operand(&mut self);
     fn instruction(&mut self);
@@ -66,6 +69,12 @@ pub mod addressing {
         }
     }
 
+    impl<CPU> AddressingMode<CPU, ReadWrite> for Absolute {
+        fn enqueue(cpu: &mut CPU) {
+            todo!()
+        }
+    }
+
     impl<CPU> AddressingMode<CPU, Write> for Absolute {
         fn enqueue(cpu: &mut CPU) {
             todo!()
@@ -75,6 +84,12 @@ pub mod addressing {
     pub struct Accumulator;
 
     impl<CPU> AddressingMode<CPU, Read> for Accumulator {
+        fn enqueue(cpu: &mut CPU) {
+            todo!()
+        }
+    }
+
+    impl<CPU> AddressingMode<CPU, ReadWrite> for Accumulator {
         fn enqueue(cpu: &mut CPU) {
             todo!()
         }
@@ -95,6 +110,12 @@ pub mod addressing {
         }
     }
 
+    impl<CPU: Cpu> AddressingMode<CPU, ReadWrite> for Immediate {
+        fn enqueue(cpu: &mut CPU) {
+            todo!()
+        }
+    }
+
     impl<CPU: Cpu> AddressingMode<CPU, Write> for Immediate {
         fn enqueue(cpu: &mut CPU) {
             cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::instruction);
@@ -110,10 +131,25 @@ pub mod addressing {
         }
     }
 
+    impl<CPU: Cpu> AddressingMode<CPU, ReadWrite> for ZeroPage {
+        fn enqueue(cpu: &mut CPU) {
+            todo!()
+        }
+    }
+
     impl<CPU: Cpu> AddressingMode<CPU, Write> for ZeroPage {
         fn enqueue(cpu: &mut CPU) {
             cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::zeropage);
             cpu.queue_microcode(CPU::instruction, BusDirection::Write, nop);
+            cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::decode);
+        }
+    }
+
+    pub struct Implied;
+
+    impl<CPU: Cpu, MODE: IOMode> AddressingMode<CPU, MODE> for Implied {
+        fn enqueue(cpu: &mut CPU) {
+            cpu.queue_microcode(CPU::nop, BusDirection::Read, CPU::instruction);
             cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::decode);
         }
     }
