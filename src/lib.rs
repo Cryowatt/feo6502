@@ -10,7 +10,7 @@ pub struct Address(u16);
 
 impl Address {
     fn increment(&mut self) {
-        self.0 += 1;
+        self.0 = self.0.wrapping_add(1);
     }
 
     fn offset(&mut self, offset: i8) {
@@ -18,7 +18,7 @@ impl Address {
     }
 
     fn high(&mut self) -> u8 {
-        (self.0 & 0xff00 >> 8) as u8
+        ((self.0 & 0xff00) >> 8) as u8
     }
 
     fn set_high(&mut self, high: u8) {
@@ -304,6 +304,7 @@ mod tests {
             let mut log = loop {
                 system.clock_pulse();
                 let log = system.log();
+                // println!("{}", log);
                 // Opcode isn't fetched until the following cycle, so this is a cheap hack to correct the opcode
                 if log.cycles == expected_log.cycles {
                     break log;
@@ -332,22 +333,6 @@ mod tests {
                 "Stack pointer failure {:?}",
                 log
             );
-
-            // let decoded = famicom::RP2A03::decode(entry.opcode)
-            //     .inspect_err(|err| eprintln!("Failed to decode {:02X}", err))
-            //     .unwrap();
-            // eprintln!("{:?}", system.cycles);
-            // eprintln!("{:?}", expected_log);
-            // assert!(false, "FUCK");
-            // break;
-            // assert_eq!(
-            //     decoded.as_instruction(),
-            //     entry.instruction,
-            //     "Decode mismatch {:02X}",
-            //     entry.opcode
-            // );
         }
     }
 }
-// Decode test:
-// Read address from nestest.log, match operands and decode

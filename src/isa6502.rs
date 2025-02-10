@@ -28,6 +28,7 @@ pub trait Cpu {
     fn queue_decode(&mut self);
     fn queue_jsr(&mut self);
     fn queue_jmp(&mut self);
+    fn queue_rts(&mut self);
     fn nop(&mut self);
     fn address_operand(&mut self);
     fn read_pc(&mut self);
