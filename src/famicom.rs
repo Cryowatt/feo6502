@@ -76,7 +76,9 @@ impl RP2A03 {
                 (_, 0x38, _) => self.decode_addressing::<Read>(opcode, Self::sec),
                 (_, 0x4C, _) => self.queue_jmp(),
                 (_, 0x60, _) => self.queue_rts(),
+                (_, 0x78, _) => self.decode_addressing::<Read>(opcode, Self::sei),
                 (_, 0xEA, _) => self.decode_addressing::<Read>(opcode, Self::nop),
+                (_, 0xF8, _) => self.decode_addressing::<Read>(opcode, Self::sed),
                 (0x8, _, 1) => self.decode_addressing::<Write>(opcode, Self::sta),
                 (0xA, _, 1) => self.decode_addressing::<Read>(opcode, Self::lda),
                 (0x8, _, 2) => self.decode_addressing::<Write>(opcode, Self::stx),
@@ -208,6 +210,14 @@ impl RP2A03 {
 
     fn sec(&mut self) {
         self.p.set(StatusFlags::C, true);
+    }
+
+    fn sed(&mut self) {
+        self.p.set(StatusFlags::D, true);
+    }
+
+    fn sei(&mut self) {
+        self.p.set(StatusFlags::I, true);
     }
 
     fn clc(&mut self) {
