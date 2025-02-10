@@ -264,7 +264,7 @@ mod tests {
                 "Instruction pointer failure {:?}",
                 log
             );
-            // assert_eq!(expected_log.opcode, log.opcode, "Opcode failure");
+            assert_eq!(expected_log.opcode, log.opcode, "Opcode failure");
             assert_eq!(log.a, expected_log.a, "A register failure {:?}", log);
             assert_eq!(log.x, expected_log.x, "X register failure {:?}", log);
             assert_eq!(log.y, expected_log.y, "Y register failure {:?}", log);

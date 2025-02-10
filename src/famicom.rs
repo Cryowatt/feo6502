@@ -85,8 +85,9 @@ impl RP2A03 {
 
     fn decode_branch(&mut self, opcode: u8) {
         let should_branch = match opcode {
+            0x90 => !self.p.contains(StatusFlags::C),
             0xB0 => self.p.contains(StatusFlags::C),
-            _ => todo!(),
+            _ => todo!("{:02X}", opcode),
         };
 
         self.queue_microcode(Self::read_pc, BusDirection::Read, Self::push_operand);
