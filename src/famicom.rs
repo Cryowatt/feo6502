@@ -89,11 +89,14 @@ impl RP2A03 {
                 (_, 0x0, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::clc),
                 (_, 0x2, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::sec),
                 (_, 0x6, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::sei),
+                (_, 0xC, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::cld),
                 (_, 0xE, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::sed),
+
                 // ALU
                 (_, 0x2, _, 1) => self.decode_addressing::<Read>(opcode, Self::and),
                 (_, 0x8, _, 1) => self.decode_addressing::<Write>(opcode, Self::sta),
                 (_, 0xA, _, 1) => self.decode_addressing::<Read>(opcode, Self::lda),
+                (_, 0xC, _, 1) => self.decode_addressing::<Read>(opcode, Self::cmp),
                 // RMW
                 (_, 0x8, _, 2) => self.decode_addressing::<Write>(opcode, Self::stx),
                 (_, 0xA, _, 2) => self.decode_addressing::<Read>(opcode, Self::ldx),
@@ -236,7 +239,6 @@ impl RP2A03 {
     }
 
     fn plp(&mut self) {
-        self.stack_push();
         self.p.remove(StatusFlags::STACK_MASK);
         self.p.insert(
             StatusFlags::STACK_MASK.intersection(StatusFlags::from_bits_retain(self.bus_data)),
@@ -244,6 +246,7 @@ impl RP2A03 {
     }
 
     fn pha(&mut self) {
+        self.stack_push();
         self.bus_data = self.a;
     }
 
@@ -254,6 +257,10 @@ impl RP2A03 {
 
     fn clc(&mut self) {
         self.p.set(StatusFlags::C, false);
+    }
+
+    fn cld(&mut self) {
+        self.p.set(StatusFlags::D, false);
     }
 
     fn sec(&mut self) {
@@ -280,6 +287,13 @@ impl RP2A03 {
     fn lda(&mut self) {
         self.a = self.bus_data;
         self.set_value_flags(self.a);
+    }
+
+    fn cmp(&mut self) {
+        self.p.set(StatusFlags::C, self.a >= self.bus_data);
+        self.p.set(StatusFlags::Z, self.a == self.bus_data);
+        self.p
+            .set(StatusFlags::N, ((self.a - self.bus_data) as i8) < 0);
     }
 
     fn stx(&mut self) {
