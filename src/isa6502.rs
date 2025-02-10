@@ -12,6 +12,7 @@ bitflags! {
         const D = 0b0000_1000;
         const B = 0b0001_0000;
         const Default = 0b0010_0100;
+        const STACK_MASK = 0b1100_1111;
         const V = 0b0100_0000;
         const N = 0b1000_0000;
     }
@@ -32,6 +33,7 @@ pub trait Cpu {
     fn nop(&mut self);
     fn address_operand(&mut self);
     fn read_pc(&mut self);
+    fn read_pc_inc(&mut self);
     fn push_operand(&mut self);
     fn instruction(&mut self);
     fn decode(&mut self);
@@ -68,8 +70,8 @@ pub mod addressing {
 
     impl<CPU: Cpu> AddressingMode<CPU, Read> for Absolute {
         fn enqueue(cpu: &mut CPU) {
-            cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::push_operand);
-            cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::push_operand);
+            cpu.queue_microcode(CPU::read_pc_inc, BusDirection::Read, CPU::push_operand);
+            cpu.queue_microcode(CPU::read_pc_inc, BusDirection::Read, CPU::push_operand);
             cpu.queue_microcode(CPU::address_operand, BusDirection::Read, CPU::instruction);
             cpu.queue_decode();
         }
@@ -111,7 +113,7 @@ pub mod addressing {
 
     impl<CPU: Cpu> AddressingMode<CPU, Read> for Immediate {
         fn enqueue(cpu: &mut CPU) {
-            cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::instruction);
+            cpu.queue_microcode(CPU::read_pc_inc, BusDirection::Read, CPU::instruction);
             cpu.queue_decode();
         }
     }
@@ -124,7 +126,7 @@ pub mod addressing {
 
     impl<CPU: Cpu> AddressingMode<CPU, Write> for Immediate {
         fn enqueue(cpu: &mut CPU) {
-            cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::instruction);
+            cpu.queue_microcode(CPU::read_pc_inc, BusDirection::Read, CPU::instruction);
             cpu.queue_decode();
         }
     }
@@ -133,7 +135,7 @@ pub mod addressing {
 
     impl<CPU: Cpu> AddressingMode<CPU, Read> for ZeroPage {
         fn enqueue(cpu: &mut CPU) {
-            cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::zeropage);
+            cpu.queue_microcode(CPU::read_pc_inc, BusDirection::Read, CPU::zeropage);
             cpu.queue_microcode(CPU::nop, BusDirection::Read, CPU::instruction);
             cpu.queue_decode();
         }
@@ -147,7 +149,7 @@ pub mod addressing {
 
     impl<CPU: Cpu> AddressingMode<CPU, Write> for ZeroPage {
         fn enqueue(cpu: &mut CPU) {
-            cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::zeropage);
+            cpu.queue_microcode(CPU::read_pc_inc, BusDirection::Read, CPU::zeropage);
             cpu.queue_microcode(CPU::instruction, BusDirection::Write, nop);
             cpu.queue_decode();
         }

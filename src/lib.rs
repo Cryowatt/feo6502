@@ -304,7 +304,7 @@ mod tests {
             let mut log = loop {
                 system.clock_pulse();
                 let log = system.log();
-                // println!("{}", log);
+                println!("{}", log);
                 // Opcode isn't fetched until the following cycle, so this is a cheap hack to correct the opcode
                 if log.cycles == expected_log.cycles {
                     break log;
