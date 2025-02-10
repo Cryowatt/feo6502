@@ -89,10 +89,12 @@ impl RP2A03 {
                 (_, 0x0, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::clc),
                 (_, 0x2, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::sec),
                 (_, 0x6, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::sei),
+                (_, 0xA, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::clv),
                 (_, 0xC, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::cld),
                 (_, 0xE, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::sed),
 
                 // ALU
+                (_, 0x0, _, 1) => self.decode_addressing::<Read>(opcode, Self::ora),
                 (_, 0x2, _, 1) => self.decode_addressing::<Read>(opcode, Self::and),
                 (_, 0x8, _, 1) => self.decode_addressing::<Write>(opcode, Self::sta),
                 (_, 0xA, _, 1) => self.decode_addressing::<Read>(opcode, Self::lda),
@@ -259,20 +261,29 @@ impl RP2A03 {
         self.p.set(StatusFlags::C, false);
     }
 
-    fn cld(&mut self) {
-        self.p.set(StatusFlags::D, false);
-    }
-
     fn sec(&mut self) {
         self.p.set(StatusFlags::C, true);
+    }
+
+    fn sei(&mut self) {
+        self.p.set(StatusFlags::I, true);
+    }
+
+    fn clv(&mut self) {
+        self.p.set(StatusFlags::V, false);
+    }
+
+    fn cld(&mut self) {
+        self.p.set(StatusFlags::D, false);
     }
 
     fn sed(&mut self) {
         self.p.set(StatusFlags::D, true);
     }
 
-    fn sei(&mut self) {
-        self.p.set(StatusFlags::I, true);
+    fn ora(&mut self) {
+        self.a = self.a | self.bus_data;
+        self.set_value_flags(self.a);
     }
 
     fn and(&mut self) {
