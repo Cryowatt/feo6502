@@ -132,7 +132,9 @@ pub mod addressing {
 
     impl<CPU: Cpu> AddressingMode<CPU, Read> for ZeroPage {
         fn enqueue(cpu: &mut CPU) {
-            todo!()
+            cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::zeropage);
+            cpu.queue_microcode(CPU::nop, BusDirection::Read, CPU::instruction);
+            cpu.queue_decode();
         }
     }
 

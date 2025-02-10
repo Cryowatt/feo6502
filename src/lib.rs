@@ -72,6 +72,19 @@ impl ops::Index<Address> for Vec<u8> {
     }
 }
 
+impl ops::Index<Address> for [u8] {
+    type Output = u8;
+    fn index(&self, idx: Address) -> &Self::Output {
+        &self[idx.0 as usize]
+    }
+}
+
+impl ops::IndexMut<Address> for [u8] {
+    fn index_mut(&mut self, index: Address) -> &mut Self::Output {
+        &mut self[index.0 as usize]
+    }
+}
+
 impl FromStr for Address {
     type Err = ParseIntError;
 
@@ -122,7 +135,17 @@ pub struct System<CPU: Cpu, Mapper: BusDevice> {
 }
 
 struct SystemBus<Mapper: BusDevice> {
+    ram: RamBank<{ 2 * 1024 }>,
     mapper: Mapper,
+}
+
+impl<Mapper: BusDevice> SystemBus<Mapper> {
+    pub fn new(mapper: Mapper) -> Self {
+        Self {
+            ram: RamBank::new(AddressMask::from_block(Address(0), 2, 2)),
+            mapper,
+        }
+    }
 }
 
 impl<CPU: Cpu, Mapper: BusDevice> System<CPU, Mapper> {
@@ -130,7 +153,7 @@ impl<CPU: Cpu, Mapper: BusDevice> System<CPU, Mapper> {
         Self {
             cpu,
             cpu_divisor,
-            bus: SystemBus { mapper },
+            bus: SystemBus::new(mapper),
         }
     }
 
@@ -142,10 +165,13 @@ impl<CPU: Cpu, Mapper: BusDevice> System<CPU, Mapper> {
 
 impl<Mapper: BusDevice> Bus for SystemBus<Mapper> {
     fn read(&self, address: Address) -> u8 {
-        self.mapper.read(address).unwrap_or_default()
+        self.ram
+            .read(address)
+            .unwrap_or_else(|| self.mapper.read(address).unwrap())
     }
 
     fn write(&mut self, address: Address, data: u8) {
+        self.ram.write(address, data);
         self.mapper.write(address, data);
     }
 }
@@ -153,6 +179,34 @@ impl<Mapper: BusDevice> Bus for SystemBus<Mapper> {
 pub trait BusDevice {
     fn read(&self, address: Address) -> Option<u8>;
     fn write(&mut self, address: Address, data: u8);
+}
+
+struct RamBank<const SIZE: usize> {
+    map: AddressMask,
+    memory: [u8; SIZE],
+}
+
+impl<const SIZE: usize> RamBank<SIZE> {
+    pub fn new(map: AddressMask) -> Self {
+        Self {
+            map,
+            memory: [0u8; SIZE],
+        }
+    }
+}
+
+impl<const SIZE: usize> BusDevice for RamBank<SIZE> {
+    fn read(&self, address: Address) -> Option<u8> {
+        self.map
+            .remap(address)
+            .map(|ram_address| self.memory[ram_address])
+    }
+
+    fn write(&mut self, address: Address, data: u8) {
+        if let Some(ram_address) = self.map.remap(address) {
+            self.memory[ram_address] = data;
+        }
+    }
 }
 
 #[cfg(test)]
