@@ -70,6 +70,7 @@ impl RP2A03 {
         } else {
             // let fk = ((opcode & 0xF0) >> 4, opcode, opcode & 0x3);
             match ((opcode & 0xF0) >> 4, opcode, opcode & 0x3) {
+                (_, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::clc),
                 (_, 0x20, _) => self.queue_jsr(),
                 (_, 0x38, _) => self.decode_addressing::<Read>(opcode, Self::sec),
                 (_, 0x4C, _) => self.queue_jmp(),
@@ -172,6 +173,10 @@ impl RP2A03 {
 
     fn sec(&mut self) {
         self.p.set(StatusFlags::C, true);
+    }
+
+    fn clc(&mut self) {
+        self.p.set(StatusFlags::C, false);
     }
 }
 
