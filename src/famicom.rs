@@ -58,7 +58,7 @@ impl RP2A03 {
         self.queue_microcode(Self::stack_push, BusDirection::Read, Self::nop);
         self.queue_microcode(Self::vector::<0xFC>, BusDirection::Read, Self::set_pcl);
         self.queue_microcode(Self::vector::<0xFD>, BusDirection::Read, Self::set_pch);
-        self.queue_microcode(Self::read_pc, BusDirection::Read, Self::decode_opcode);
+        self.queue_decode();
     }
 
     fn decode_opcode(&mut self) {
@@ -72,9 +72,11 @@ impl RP2A03 {
             match ((opcode & 0xF0) >> 4, opcode, opcode & 0x3) {
                 (_, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::clc),
                 (_, 0x20, _) => self.queue_jsr(),
+                (_, 0x24, _) => self.decode_addressing::<Read>(opcode, Self::bit),
                 (_, 0x38, _) => self.decode_addressing::<Read>(opcode, Self::sec),
                 (_, 0x4C, _) => self.queue_jmp(),
                 (_, 0xEA, _) => self.decode_addressing::<Read>(opcode, Self::nop),
+                (0x8, _, 1) => self.decode_addressing::<Write>(opcode, Self::sta),
                 (0xA, _, 1) => self.decode_addressing::<Read>(opcode, Self::lda),
                 (0x8, _, 2) => self.decode_addressing::<Write>(opcode, Self::stx),
                 (0xA, _, 2) => self.decode_addressing::<Read>(opcode, Self::ldx),
@@ -106,7 +108,7 @@ impl RP2A03 {
             });
         }
 
-        self.queue_microcode(Self::read_pc, BusDirection::Read, Self::decode_opcode);
+        self.queue_decode();
     }
 
     fn decode_addressing<IO: IOMode>(&mut self, opcode: u8, instruction: fn(&mut Self))
@@ -162,6 +164,12 @@ impl RP2A03 {
         self.p.set(StatusFlags::N, value > 0x80);
     }
 
+    fn bit(&mut self) {
+        let result = self.a & self.bus_data;
+        self.set_value_flags(self.bus_data);
+        self.p.set(StatusFlags::Z, result == 0);
+    }
+
     fn jmp(&mut self) {
         self.pc = Address((self.bus_data as u16) << 8 | self.operand.0 as u16);
     }
@@ -174,6 +182,10 @@ impl RP2A03 {
     fn ldx(&mut self) {
         self.x = self.bus_data;
         self.set_value_flags(self.x);
+    }
+
+    fn sta(&mut self) {
+        self.bus_data = self.a;
     }
 
     fn stx(&mut self) {
@@ -215,6 +227,10 @@ impl Cpu for RP2A03 {
         self.timing.push_back((pre_bus, bus_mode, post_bus));
     }
 
+    fn queue_decode(&mut self) {
+        self.queue_microcode(Self::read_pc, BusDirection::Read, Self::decode_opcode);
+    }
+
     fn decode(&mut self) {
         self.decode_opcode();
     }
@@ -229,6 +245,10 @@ impl Cpu for RP2A03 {
     fn push_operand(&mut self) {
         self.operand.1 = self.operand.0;
         self.operand.0 = self.bus_data;
+    }
+
+    fn address_operand(&mut self) {
+        self.bus_address = Address((self.operand.0 as u16) << 8 | self.operand.1 as u16);
     }
 
     fn instruction(&mut self) {
@@ -304,7 +324,7 @@ impl fmt::Display for NesTestLogEntry {
             "{pc:?}  {op:02X}  A:{a:02X} X:{x:02X} Y:{y:02X} P:{p:02X} SP:{sp:02X}  CYC:{cycles}",
             pc = self.pc,
             op = self.opcode,
-            a = self.x,
+            a = self.a,
             x = self.x,
             y = self.y,
             p = self.p,

@@ -25,9 +25,11 @@ pub trait Cpu {
         bus_mode: BusDirection,
         post_bus: fn(&mut Self),
     );
+    fn queue_decode(&mut self);
     fn queue_jsr(&mut self);
     fn queue_jmp(&mut self);
     fn nop(&mut self);
+    fn address_operand(&mut self);
     fn read_pc(&mut self);
     fn push_operand(&mut self);
     fn instruction(&mut self);
@@ -63,19 +65,22 @@ pub mod addressing {
 
     pub struct Absolute;
 
-    impl<CPU> AddressingMode<CPU, Read> for Absolute {
+    impl<CPU: Cpu> AddressingMode<CPU, Read> for Absolute {
+        fn enqueue(cpu: &mut CPU) {
+            cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::push_operand);
+            cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::push_operand);
+            cpu.queue_microcode(CPU::address_operand, BusDirection::Read, CPU::instruction);
+            cpu.queue_decode();
+        }
+    }
+
+    impl<CPU: Cpu> AddressingMode<CPU, ReadWrite> for Absolute {
         fn enqueue(cpu: &mut CPU) {
             todo!()
         }
     }
 
-    impl<CPU> AddressingMode<CPU, ReadWrite> for Absolute {
-        fn enqueue(cpu: &mut CPU) {
-            todo!()
-        }
-    }
-
-    impl<CPU> AddressingMode<CPU, Write> for Absolute {
+    impl<CPU: Cpu> AddressingMode<CPU, Write> for Absolute {
         fn enqueue(cpu: &mut CPU) {
             todo!()
         }
@@ -83,19 +88,19 @@ pub mod addressing {
 
     pub struct Accumulator;
 
-    impl<CPU> AddressingMode<CPU, Read> for Accumulator {
+    impl<CPU: Cpu> AddressingMode<CPU, Read> for Accumulator {
         fn enqueue(cpu: &mut CPU) {
             todo!()
         }
     }
 
-    impl<CPU> AddressingMode<CPU, ReadWrite> for Accumulator {
+    impl<CPU: Cpu> AddressingMode<CPU, ReadWrite> for Accumulator {
         fn enqueue(cpu: &mut CPU) {
             todo!()
         }
     }
 
-    impl<CPU> AddressingMode<CPU, Write> for Accumulator {
+    impl<CPU: Cpu> AddressingMode<CPU, Write> for Accumulator {
         fn enqueue(cpu: &mut CPU) {
             todo!()
         }
@@ -106,7 +111,7 @@ pub mod addressing {
     impl<CPU: Cpu> AddressingMode<CPU, Read> for Immediate {
         fn enqueue(cpu: &mut CPU) {
             cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::instruction);
-            cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::decode);
+            cpu.queue_decode();
         }
     }
 
@@ -119,7 +124,7 @@ pub mod addressing {
     impl<CPU: Cpu> AddressingMode<CPU, Write> for Immediate {
         fn enqueue(cpu: &mut CPU) {
             cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::instruction);
-            cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::decode);
+            cpu.queue_decode();
         }
     }
 
@@ -141,7 +146,7 @@ pub mod addressing {
         fn enqueue(cpu: &mut CPU) {
             cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::zeropage);
             cpu.queue_microcode(CPU::instruction, BusDirection::Write, nop);
-            cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::decode);
+            cpu.queue_decode();
         }
     }
 
@@ -150,7 +155,7 @@ pub mod addressing {
     impl<CPU: Cpu, MODE: IOMode> AddressingMode<CPU, MODE> for Implied {
         fn enqueue(cpu: &mut CPU) {
             cpu.queue_microcode(CPU::nop, BusDirection::Read, CPU::instruction);
-            cpu.queue_microcode(CPU::read_pc, BusDirection::Read, CPU::decode);
+            cpu.queue_decode();
         }
     }
 }
