@@ -93,9 +93,13 @@ impl RP2A03 {
                 (_, 0xC, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::cld),
                 (_, 0xE, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::sed),
 
+                (_, 0xA, _, 0) => self.decode_addressing::<Read>(opcode, Self::ldy),
+
                 // ALU
                 (_, 0x0, _, 1) => self.decode_addressing::<Read>(opcode, Self::ora),
                 (_, 0x2, _, 1) => self.decode_addressing::<Read>(opcode, Self::and),
+                (_, 0x4, _, 1) => self.decode_addressing::<Read>(opcode, Self::eor),
+                (_, 0x6, _, 1) => self.decode_addressing::<Read>(opcode, Self::adc),
                 (_, 0x8, _, 1) => self.decode_addressing::<Write>(opcode, Self::sta),
                 (_, 0xA, _, 1) => self.decode_addressing::<Read>(opcode, Self::lda),
                 (_, 0xC, _, 1) => self.decode_addressing::<Read>(opcode, Self::cmp),
@@ -281,6 +285,11 @@ impl RP2A03 {
         self.p.set(StatusFlags::D, true);
     }
 
+    fn ldy(&mut self) {
+        self.y = self.bus_data;
+        self.set_value_flags(self.y);
+    }
+
     fn ora(&mut self) {
         self.a = self.a | self.bus_data;
         self.set_value_flags(self.a);
@@ -288,6 +297,23 @@ impl RP2A03 {
 
     fn and(&mut self) {
         self.a = self.a & self.bus_data;
+        self.set_value_flags(self.a);
+    }
+
+    fn eor(&mut self) {
+        self.a = self.a ^ self.bus_data;
+        self.set_value_flags(self.a);
+    }
+
+    fn adc(&mut self) {
+        let (result, add_overflow) = self.a.overflowing_add(self.bus_data);
+        let (result, carry_overflow) = result.overflowing_add(self.p.bits() & 1);
+        self.p.set(StatusFlags::C, add_overflow | carry_overflow);
+        self.p.set(
+            StatusFlags::V,
+            (result ^ self.a) & (result ^ self.bus_data) & 0x80 > 0,
+        );
+        self.a = result;
         self.set_value_flags(self.a);
     }
 
@@ -303,8 +329,10 @@ impl RP2A03 {
     fn cmp(&mut self) {
         self.p.set(StatusFlags::C, self.a >= self.bus_data);
         self.p.set(StatusFlags::Z, self.a == self.bus_data);
-        self.p
-            .set(StatusFlags::N, ((self.a - self.bus_data) as i8) < 0);
+        self.p.set(
+            StatusFlags::N,
+            (self.a.wrapping_sub(self.bus_data) as i8) < 0,
+        );
     }
 
     fn stx(&mut self) {
