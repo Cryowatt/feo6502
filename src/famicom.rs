@@ -84,8 +84,11 @@ impl RP2A03 {
                 (_, 0x6, 0x0, _) => self.queue_rts(),
                 (_, 0x2, 0x4, _) => self.decode_addressing::<Read>(opcode, Self::bit),
                 (false, _, 0x8, _) => self.decode_stack(opcode),
+                (_, 0x8, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::dey),
+                (_, 0xA, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::tay),
+                (_, 0xC, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::iny),
+                (_, 0xE, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::inx),
                 (_, 0x4, 0xC, _) => self.queue_jmp(),
-                (true, _, 0x8, _) => self.decode_stack(opcode),
                 (_, 0x0, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::clc),
                 (_, 0x2, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::sec),
                 (_, 0x6, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::sei),
@@ -106,10 +109,17 @@ impl RP2A03 {
                 (_, 0xA, _, 1) => self.decode_addressing::<Read>(opcode, Self::lda),
                 (_, 0xC, _, 1) => self.decode_addressing::<Read>(opcode, Self::cmp),
                 (_, 0xE, _, 1) => self.decode_addressing::<Read>(opcode, Self::sbc),
+
                 // RMW
+                (_, 0x8, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::txa),
+                (_, 0x8, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::tya),
                 (_, 0x8, _, 2) => self.decode_addressing::<Write>(opcode, Self::stx),
+                (_, 0xA, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::tax),
+                (_, 0xA, 0x1A, _) => self.decode_addressing::<Read>(opcode, Self::tsx),
                 (_, 0xA, _, 2) => self.decode_addressing::<Read>(opcode, Self::ldx),
+                (_, 0xC, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::dex),
                 (_, 0xE, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::nop),
+
                 // Illegal
                 _ => unimplemented!("No decode for {:02X}", opcode),
             }
@@ -237,11 +247,6 @@ impl RP2A03 {
         ));
         self.p.set(StatusFlags::Z, result == 0);
     }
-
-    fn jmp(&mut self) {
-        self.pc = Address((self.bus_data as u16) << 8 | self.operand.0 as u16);
-    }
-
     fn php(&mut self) {
         self.stack_push();
         self.bus_data = self.p.union(StatusFlags::STACK_MASK.complement()).bits();
@@ -262,6 +267,30 @@ impl RP2A03 {
     fn pla(&mut self) {
         self.a = self.bus_data;
         self.set_value_flags(self.a);
+    }
+
+    fn dey(&mut self) {
+        self.y = self.y.wrapping_sub(1);
+        self.set_value_flags(self.y);
+    }
+
+    fn tay(&mut self) {
+        self.y = self.a;
+        self.set_value_flags(self.y);
+    }
+
+    fn iny(&mut self) {
+        self.y = self.y.wrapping_add(1);
+        self.set_value_flags(self.y);
+    }
+
+    fn inx(&mut self) {
+        self.x = self.x.wrapping_add(1);
+        self.set_value_flags(self.x);
+    }
+
+    fn jmp(&mut self) {
+        self.pc = Address((self.bus_data as u16) << 8 | self.operand.0 as u16);
     }
 
     fn clc(&mut self) {
@@ -368,12 +397,37 @@ impl RP2A03 {
         self.set_value_flags(self.a);
     }
 
+    fn txa(&mut self) {
+        self.a = self.x;
+        self.set_value_flags(self.a);
+    }
+
+    fn tya(&mut self) {
+        self.a = self.y;
+        self.set_value_flags(self.a);
+    }
+
     fn stx(&mut self) {
         self.bus_data = self.x;
     }
 
+    fn tax(&mut self) {
+        self.x = self.a;
+        self.set_value_flags(self.x);
+    }
+
+    fn tsx(&mut self) {
+        self.x = self.stack;
+        self.set_value_flags(self.x);
+    }
+
     fn ldx(&mut self) {
         self.x = self.bus_data;
+        self.set_value_flags(self.x);
+    }
+
+    fn dex(&mut self) {
+        self.x = self.x.wrapping_sub(1);
         self.set_value_flags(self.x);
     }
 }
