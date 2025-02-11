@@ -81,6 +81,7 @@ impl RP2A03 {
             match (high, row, column, block) {
                 // Control
                 (_, 0x2, 0x0, _) => self.queue_jsr(),
+                (_, 0x4, 0x0, _) => self.queue_rti(),
                 (_, 0x6, 0x0, _) => self.queue_rts(),
                 (_, 0x2, 0x4, _) => self.decode_addressing::<Read>(opcode, Self::bit),
                 (false, _, 0x8, _) => self.decode_stack(opcode),
@@ -490,7 +491,7 @@ impl Cpu for RP2A03 {
     }
 
     fn address_operand(&mut self) {
-        self.bus_address = Address((self.operand.0 as u16) << 8 | self.bus_data as u16);
+        self.bus_address = Address((self.bus_data as u16) << 8 | self.operand.0 as u16);
     }
 
     fn instruction(&mut self) {
@@ -528,6 +529,15 @@ impl Cpu for RP2A03 {
             cpu.pc = Address((cpu.bus_data as u16) << 8 | cpu.operand.0 as u16)
         });
 
+        self.queue_decode();
+    }
+
+    fn queue_rti(&mut self) {
+        self.queue_microcode(Self::read_pc_inc, BusDirection::Read, Self::nop);
+        self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::nop);
+        self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::plp);
+        self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::set_pcl);
+        self.queue_microcode(Self::read_stack, BusDirection::Read, Self::set_pch);
         self.queue_decode();
     }
 
