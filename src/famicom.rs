@@ -112,6 +112,7 @@ impl RP2A03 {
                 (_, 0xE, _, 1) => self.decode_addressing::<Read>(opcode, Self::sbc),
 
                 // RMW
+                (_, 0x0, 0xA, _) => self.decode_addressing::<ReadWrite>(opcode, Self::asl),
                 (_, 0x4, 0xA, _) => self.decode_addressing::<ReadWrite>(opcode, Self::lsr),
                 (_, 0x8, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::txa),
                 (_, 0x8, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::tya),
@@ -398,6 +399,12 @@ impl RP2A03 {
         );
         self.a = result;
         self.set_value_flags(self.a);
+    }
+
+    fn asl(&mut self) {
+        self.p.set(StatusFlags::C, self.bus_data & 0b1000_0000 > 0);
+        self.bus_data = self.bus_data << 1;
+        self.set_value_flags(self.bus_data);
     }
 
     fn lsr(&mut self) {
