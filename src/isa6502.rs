@@ -37,7 +37,9 @@ pub trait Cpu {
     fn read_pc_inc(&mut self);
     fn push_operand(&mut self);
     fn instruction(&mut self);
-    fn instruction_write(&mut self);
+    fn load_accumulator(&mut self);
+    fn store_accumulator(&mut self);
+
     fn decode(&mut self);
     fn zeropage(&mut self);
 
@@ -98,19 +100,30 @@ pub mod addressing {
 
     impl<CPU: Cpu> AddressingMode<CPU, Read> for Accumulator {
         fn enqueue(cpu: &mut CPU) {
-            todo!()
+            cpu.queue_microcode(CPU::nop, BusDirection::Read, |cpu| {
+                cpu.store_accumulator();
+                cpu.instruction();
+            });
+            cpu.queue_decode();
         }
     }
 
     impl<CPU: Cpu> AddressingMode<CPU, ReadWrite> for Accumulator {
         fn enqueue(cpu: &mut CPU) {
-            todo!()
+            cpu.queue_microcode(CPU::nop, BusDirection::Read, |cpu| {
+                cpu.store_accumulator();
+                cpu.instruction();
+                cpu.load_accumulator();
+            });
+            cpu.queue_decode();
         }
     }
 
     impl<CPU: Cpu> AddressingMode<CPU, Write> for Accumulator {
         fn enqueue(cpu: &mut CPU) {
             todo!()
+            // cpu.queue_microcode(CPU::nop, BusDirection::Read, |cpu| cpu.bus_data = cpu.a);
+            // cpu.queue_decode();
         }
     }
 

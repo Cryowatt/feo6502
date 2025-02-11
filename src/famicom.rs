@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, ops::ShrAssign};
 
 use crate::{
     isa6502::{addressing::*, *},
@@ -112,6 +112,7 @@ impl RP2A03 {
                 (_, 0xE, _, 1) => self.decode_addressing::<Read>(opcode, Self::sbc),
 
                 // RMW
+                (_, 0x4, 0xA, _) => self.decode_addressing::<ReadWrite>(opcode, Self::lsr),
                 (_, 0x8, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::txa),
                 (_, 0x8, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::tya),
                 (_, 0x8, 0x1A, _) => self.decode_addressing::<Read>(opcode, Self::txs),
@@ -171,7 +172,7 @@ impl RP2A03 {
             0x00 | 0x02 => Immediate::enqueue(self),
             0x01 | 0x03 => unimplemented!("(d,x)"),
             0x04..=0x07 => ZeroPage::enqueue(self),
-            0x08 | 0x0A => Implied::enqueue(self),
+            0x08 | 0x0A => Accumulator::enqueue(self),
             0x09 | 0x0B => Immediate::enqueue(self),
             0x0C..=0x0F => Absolute::enqueue(self),
             0x10 | 0x12 => unimplemented!("*+d"),
@@ -399,6 +400,12 @@ impl RP2A03 {
         self.set_value_flags(self.a);
     }
 
+    fn lsr(&mut self) {
+        self.p.set(StatusFlags::C, self.bus_data & 1 > 0);
+        self.bus_data = self.bus_data >> 1;
+        self.set_value_flags(self.bus_data);
+    }
+
     fn txa(&mut self) {
         self.a = self.x;
         self.set_value_flags(self.a);
@@ -498,8 +505,12 @@ impl Cpu for RP2A03 {
         (self.instruction)(self)
     }
 
-    fn instruction_write(&mut self) {
-        (self.instruction)(self)
+    fn load_accumulator(&mut self) {
+        self.a = self.bus_data;
+    }
+
+    fn store_accumulator(&mut self) {
+        self.bus_data = self.a;
     }
 
     fn zeropage(&mut self) {
