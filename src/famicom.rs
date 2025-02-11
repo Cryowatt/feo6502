@@ -113,6 +113,7 @@ impl RP2A03 {
                 // RMW
                 (_, 0x8, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::txa),
                 (_, 0x8, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::tya),
+                (_, 0x8, 0x1A, _) => self.decode_addressing::<Read>(opcode, Self::txs),
                 (_, 0x8, _, 2) => self.decode_addressing::<Write>(opcode, Self::stx),
                 (_, 0xA, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::tax),
                 (_, 0xA, 0x1A, _) => self.decode_addressing::<Read>(opcode, Self::tsx),
@@ -407,6 +408,10 @@ impl RP2A03 {
         self.set_value_flags(self.a);
     }
 
+    fn txs(&mut self) {
+        self.stack = self.x;
+    }
+
     fn stx(&mut self) {
         self.bus_data = self.x;
     }
@@ -485,10 +490,14 @@ impl Cpu for RP2A03 {
     }
 
     fn address_operand(&mut self) {
-        self.bus_address = Address((self.operand.0 as u16) << 8 | self.operand.1 as u16);
+        self.bus_address = Address((self.operand.0 as u16) << 8 | self.bus_data as u16);
     }
 
     fn instruction(&mut self) {
+        (self.instruction)(self)
+    }
+
+    fn instruction_write(&mut self) {
         (self.instruction)(self)
     }
 

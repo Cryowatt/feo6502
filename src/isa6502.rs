@@ -36,6 +36,7 @@ pub trait Cpu {
     fn read_pc_inc(&mut self);
     fn push_operand(&mut self);
     fn instruction(&mut self);
+    fn instruction_write(&mut self);
     fn decode(&mut self);
     fn zeropage(&mut self);
 
@@ -71,8 +72,8 @@ pub mod addressing {
     impl<CPU: Cpu> AddressingMode<CPU, Read> for Absolute {
         fn enqueue(cpu: &mut CPU) {
             cpu.queue_microcode(CPU::read_pc_inc, BusDirection::Read, CPU::push_operand);
-            cpu.queue_microcode(CPU::read_pc_inc, BusDirection::Read, CPU::push_operand);
-            cpu.queue_microcode(CPU::address_operand, BusDirection::Read, CPU::instruction);
+            cpu.queue_microcode(CPU::read_pc_inc, BusDirection::Read, CPU::address_operand);
+            cpu.queue_microcode(CPU::nop, BusDirection::Read, CPU::instruction);
             cpu.queue_decode();
         }
     }
@@ -85,7 +86,10 @@ pub mod addressing {
 
     impl<CPU: Cpu> AddressingMode<CPU, Write> for Absolute {
         fn enqueue(cpu: &mut CPU) {
-            todo!()
+            cpu.queue_microcode(CPU::read_pc_inc, BusDirection::Read, CPU::push_operand);
+            cpu.queue_microcode(CPU::read_pc_inc, BusDirection::Read, CPU::address_operand);
+            cpu.queue_microcode(CPU::instruction, BusDirection::Write, CPU::nop);
+            cpu.queue_decode();
         }
     }
 
