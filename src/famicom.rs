@@ -112,8 +112,10 @@ impl RP2A03 {
                 (_, 0xE, _, 1) => self.decode_addressing::<Read>(opcode, Self::sbc),
 
                 // RMW
-                (_, 0x0, 0xA, _) => self.decode_addressing::<ReadWrite>(opcode, Self::asl),
-                (_, 0x4, 0xA, _) => self.decode_addressing::<ReadWrite>(opcode, Self::lsr),
+                (_, 0x0, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::asl),
+                (_, 0x2, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::rol),
+                (_, 0x4, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::lsr),
+                (_, 0x6, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::ror),
                 (_, 0x8, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::txa),
                 (_, 0x8, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::tya),
                 (_, 0x8, 0x1A, _) => self.decode_addressing::<Read>(opcode, Self::txs),
@@ -407,9 +409,31 @@ impl RP2A03 {
         self.set_value_flags(self.bus_data);
     }
 
+    fn rol(&mut self) {
+        let bit0 = if self.p.contains(StatusFlags::C) {
+            0b1
+        } else {
+            0
+        };
+        self.p.set(StatusFlags::C, self.bus_data & 0b1000_0000 > 0);
+        self.bus_data = (self.bus_data << 1) | bit0;
+        self.set_value_flags(self.bus_data);
+    }
+
     fn lsr(&mut self) {
         self.p.set(StatusFlags::C, self.bus_data & 1 > 0);
         self.bus_data = self.bus_data >> 1;
+        self.set_value_flags(self.bus_data);
+    }
+
+    fn ror(&mut self) {
+        let bit7 = if self.p.contains(StatusFlags::C) {
+            0b1000_0000
+        } else {
+            0
+        };
+        self.p.set(StatusFlags::C, self.bus_data & 1 > 0);
+        self.bus_data = (self.bus_data >> 1) | bit7;
         self.set_value_flags(self.bus_data);
     }
 
