@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, ops::ShrAssign};
+use std::collections::VecDeque;
 
 use crate::{
     isa6502::{addressing::*, *},
@@ -10,9 +10,14 @@ pub mod rom;
 
 #[derive(Debug)]
 pub struct RP2A03 {
-    timing: VecDeque<(fn(&mut Self), BusDirection, fn(&mut Self))>,
+    timing: VecDeque<(
+        fn(&mut Self) -> Address,
+        BusDirection,
+        fn(&mut Self, &mut u8),
+    )>,
     pc: Address,
     stack: u8,
+    address_buffer: Address,
     bus_address: Address,
     bus_data: u8,
     a: u8,
@@ -20,7 +25,7 @@ pub struct RP2A03 {
     y: u8,
     p: StatusFlags,
     opcode: u8,
-    instruction: fn(&mut RP2A03),
+    instruction: fn(&mut RP2A03, &mut u8),
     operand: (u8, u8),
     // result: &'_ mut u8,
     cycles: u32,
@@ -32,6 +37,7 @@ impl RP2A03 {
             timing: VecDeque::with_capacity(7),
             pc: Address(0),
             stack: 0,
+            address_buffer: Address(0),
             bus_address: Address(0),
             bus_data: 0,
             a: 0,
@@ -40,7 +46,7 @@ impl RP2A03 {
             p: StatusFlags::Default,
             opcode: 0,
             operand: (0, 0),
-            instruction: |_| unreachable!(),
+            instruction: |_, _| unreachable!(),
             cycles: 0,
         };
         cpu.reset();
@@ -51,23 +57,23 @@ impl RP2A03 {
         self.stack = 0;
         self.p.set(StatusFlags::Default, true);
         self.timing.clear();
-        self.queue_microcode(Self::nop, BusDirection::Read, Self::nop);
-        self.queue_microcode(Self::nop, BusDirection::Read, Self::nop);
-        self.queue_microcode(Self::stack_push, BusDirection::Read, Self::nop);
-        self.queue_microcode(Self::stack_push, BusDirection::Read, Self::nop);
-        self.queue_microcode(Self::stack_push, BusDirection::Read, Self::nop);
-        self.queue_microcode(Self::vector::<0xFC>, BusDirection::Read, Self::set_pcl);
-        self.queue_microcode(Self::vector::<0xFD>, BusDirection::Read, Self::set_pch);
+        self.queue_microcode(Self::pc_inc, BusDirection::Read, Self::nop);
+        self.queue_microcode(Self::pc_inc, BusDirection::Read, Self::nop);
+        self.queue_microcode(Self::stack_push, BusDirection::Read, Self::push_pch);
+        self.queue_microcode(Self::stack_push, BusDirection::Read, Self::push_pcl);
+        self.queue_microcode(Self::stack_push, BusDirection::Read, Self::push_p);
+        self.queue_microcode(Self::vector::<0xFC>, BusDirection::Read, Self::pull_pcl);
+        self.queue_microcode(Self::vector::<0xFD>, BusDirection::Read, Self::pull_pch);
         self.queue_decode();
     }
 
-    fn decode_opcode(&mut self) {
+    fn decode_opcode(&mut self, opcode: &mut u8) {
+        let opcode = *opcode;
         // 0000_0000
         // bit 7: high/low
         // bit 7-5: row
         // bit 4-0: column
         // bit 1-0: block
-        let opcode = self.bus_data;
         let high = (opcode & 0b1000_0000) > 0;
         let row = (opcode & 0b1110_0000) >> 4;
         let column = opcode & 0b0001_1111;
@@ -81,54 +87,54 @@ impl RP2A03 {
             match (high, row, column, block) {
                 // Control
                 (_, 0x2, 0x0, _) => self.queue_jsr(),
-                (_, 0x4, 0x0, _) => self.queue_rti(),
-                (_, 0x6, 0x0, _) => self.queue_rts(),
-                (_, 0x2, 0x4, _) => self.decode_addressing::<Read>(opcode, Self::bit),
-                (false, _, 0x8, _) => self.decode_stack(opcode),
-                (_, 0x8, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::dey),
-                (_, 0xA, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::tay),
-                (_, 0xC, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::iny),
-                (_, 0xE, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::inx),
-                (_, 0x2, 0xC, _) => self.decode_addressing::<Read>(opcode, Self::bit),
+                // (_, 0x4, 0x0, _) => self.queue_rti(),
+                // (_, 0x6, 0x0, _) => self.queue_rts(),
+                // (_, 0x2, 0x4, _) => self.decode_addressing::<Read>(opcode, Self::bit),
+                // (false, _, 0x8, _) => self.decode_stack(opcode),
+                // (_, 0x8, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::dey),
+                // (_, 0xA, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::tay),
+                // (_, 0xC, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::iny),
+                // (_, 0xE, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::inx),
+                // (_, 0x2, 0xC, _) => self.decode_addressing::<Read>(opcode, Self::bit),
                 (_, 0x4, 0xC, _) => self.queue_jmp(),
-                (_, 0x0, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::clc),
+                // (_, 0x0, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::clc),
                 (_, 0x2, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::sec),
-                (_, 0x6, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::sei),
-                (_, 0xA, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::clv),
-                (_, 0xC, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::cld),
-                (_, 0xE, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::sed),
+                // (_, 0x6, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::sei),
+                // (_, 0xA, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::clv),
+                // (_, 0xC, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::cld),
+                // (_, 0xE, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::sed),
 
-                (_, 0x8, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::tya),
-                (_, 0x8, _, 0) => self.decode_addressing::<Write>(opcode, Self::sty),
-                (_, 0xA, _, 0) => self.decode_addressing::<Read>(opcode, Self::ldy),
-                (_, 0xC, _, 0) => self.decode_addressing::<Read>(opcode, Self::cpy),
-                (_, 0xE, _, 0) => self.decode_addressing::<Read>(opcode, Self::cpx),
+                // (_, 0x8, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::tya),
+                // (_, 0x8, _, 0) => self.decode_addressing::<Write>(opcode, Self::sty),
+                // (_, 0xA, _, 0) => self.decode_addressing::<Read>(opcode, Self::ldy),
+                // (_, 0xC, _, 0) => self.decode_addressing::<Read>(opcode, Self::cpy),
+                // (_, 0xE, _, 0) => self.decode_addressing::<Read>(opcode, Self::cpx),
 
                 // ALU
-                (_, 0x0, _, 1) => self.decode_addressing::<Read>(opcode, Self::ora),
-                (_, 0x2, _, 1) => self.decode_addressing::<Read>(opcode, Self::and),
-                (_, 0x4, _, 1) => self.decode_addressing::<Read>(opcode, Self::eor),
-                (_, 0x6, _, 1) => self.decode_addressing::<Read>(opcode, Self::adc),
-                (_, 0x8, _, 1) => self.decode_addressing::<Write>(opcode, Self::sta),
-                (_, 0xA, _, 1) => self.decode_addressing::<Read>(opcode, Self::lda),
-                (_, 0xC, _, 1) => self.decode_addressing::<Read>(opcode, Self::cmp),
-                (_, 0xE, _, 1) => self.decode_addressing::<Read>(opcode, Self::sbc),
+                // (_, 0x0, _, 1) => self.decode_addressing::<Read>(opcode, Self::ora),
+                // (_, 0x2, _, 1) => self.decode_addressing::<Read>(opcode, Self::and),
+                // (_, 0x4, _, 1) => self.decode_addressing::<Read>(opcode, Self::eor),
+                // (_, 0x6, _, 1) => self.decode_addressing::<Read>(opcode, Self::adc),
+                // (_, 0x8, _, 1) => self.decode_addressing::<Write>(opcode, Self::sta),
+                // (_, 0xA, _, 1) => self.decode_addressing::<Read>(opcode, Self::lda),
+                // (_, 0xC, _, 1) => self.decode_addressing::<Read>(opcode, Self::cmp),
+                // (_, 0xE, _, 1) => self.decode_addressing::<Read>(opcode, Self::sbc),
 
                 // RMW
-                (_, 0x0, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::asl),
-                (_, 0x2, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::rol),
-                (_, 0x4, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::lsr),
-                (_, 0x6, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::ror),
-                (_, 0x8, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::txa),
-                (_, 0x8, 0x1A, _) => self.decode_addressing::<Read>(opcode, Self::txs),
+                // (_, 0x0, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::asl),
+                // (_, 0x2, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::rol),
+                // (_, 0x4, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::lsr),
+                // (_, 0x6, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::ror),
+                // (_, 0x8, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::txa),
+                // (_, 0x8, 0x1A, _) => self.decode_addressing::<Read>(opcode, Self::txs),
                 (_, 0x8, _, 2) => self.decode_addressing::<Write>(opcode, Self::stx),
-                (_, 0xA, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::tax),
-                (_, 0xA, 0x1A, _) => self.decode_addressing::<Read>(opcode, Self::tsx),
+                // (_, 0xA, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::tax),
+                // (_, 0xA, 0x1A, _) => self.decode_addressing::<Read>(opcode, Self::tsx),
                 (_, 0xA, _, 2) => self.decode_addressing::<Read>(opcode, Self::ldx),
-                (_, 0xC, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::dex),
-                (_, 0xC, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::dec),
+                // (_, 0xC, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::dex),
+                // (_, 0xC, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::dec),
                 (_, 0xE, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::nop),
-                (_, 0xE, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::inc),
+                // (_, 0xE, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::inc),
 
                 // Illegal
                 _ => unimplemented!("No decode for {:02X}", opcode),
@@ -149,16 +155,19 @@ impl RP2A03 {
             _ => todo!("{:02X}", opcode),
         };
 
-        self.queue_microcode(Self::read_pc_inc, BusDirection::Read, Self::push_operand);
+        self.queue_microcode(Self::pc_inc, BusDirection::Read, Self::pull_operand);
 
         if should_branch {
-            self.queue_microcode(Self::nop, BusDirection::Read, |cpu| {
-                cpu.pc.offset(cpu.operand.0 as i8);
-                cpu.bus_address = cpu.pc;
-                cpu.bus_address.set_low(cpu.pc.low());
+            self.queue_microcode(Self::pc, BusDirection::Read, |cpu, _| {
+                let mut pc = cpu.pc;
+                pc.offset(cpu.operand.0 as i8);
 
-                if cpu.pc != cpu.bus_address {
-                    cpu.push_microcode(Self::nop, BusDirection::Read, Self::nop);
+                if cpu.pc.high() != pc.high() {
+                    cpu.push_microcode(Self::pc_offset_wrapping, BusDirection::Read, |cpu, _| {
+                        cpu.pc.offset(cpu.operand.0 as i8)
+                    });
+                } else {
+                    cpu.pc = pc;
                 }
             });
         }
@@ -166,29 +175,29 @@ impl RP2A03 {
         self.queue_decode();
     }
 
-    fn decode_addressing<IO: IOMode>(&mut self, opcode: u8, instruction: fn(&mut Self))
+    fn decode_addressing<IO: IOMode>(&mut self, opcode: u8, instruction: fn(&mut Self, &mut u8))
     where
         Implied: AddressingMode<Self, IO>,
+        IndexedIndirectX: AddressingMode<Self, IO>,
+        ZeroPage: AddressingMode<Self, IO>,
         Accumulator: AddressingMode<Self, IO>,
         Immediate: AddressingMode<Self, IO>,
         Absolute: AddressingMode<Self, IO>,
-        ZeroPage: AddressingMode<Self, IO>,
+        IndirectIndexedY: AddressingMode<Self, IO>,
         // ZeroPageIndexed
         // AbsoluteIndexed
-        IndirectIndexedX: AddressingMode<Self, IO>,
-        // IndirectIndexedY
     {
         self.instruction = instruction;
 
         match opcode & 0x1f {
             0x00 | 0x02 => Immediate::enqueue(self),
-            0x01 | 0x03 => IndirectIndexedX::enqueue(self),
+            0x01 | 0x03 => IndexedIndirectX::enqueue(self),
             0x04..=0x07 => ZeroPage::enqueue(self),
             0x08 | 0x0A => Accumulator::enqueue(self),
             0x09 | 0x0B => Immediate::enqueue(self),
             0x0C..=0x0F => Absolute::enqueue(self),
             0x10 | 0x12 => unimplemented!("*+d"),
-            0x11 | 0x13 => unimplemented!("(d),y"),
+            0x11 | 0x13 => IndirectIndexedY::enqueue(self),
             0x14..=0x17 => unimplemented!("d,x/y"),
             0x18 | 0x1A => Implied::enqueue(self),
             0x19 | 0x1B => unimplemented!("a,y"),
@@ -198,37 +207,28 @@ impl RP2A03 {
     }
 
     fn decode_stack(&mut self, opcode: u8) {
-        // push
-        // 1    PC     R  fetch opcode, increment PC
-        // 2    PC     R  read next instruction byte (and throw it away)
-        // 3  $0100,S  W  push register on stack, decrement S
+        todo!();
+        // self.queue_microcode(Self::read_pc, BusDirection::Read, Self::nop);
 
-        self.queue_microcode(Self::read_pc, BusDirection::Read, Self::nop);
+        // match opcode {
+        //     0x08 => self.queue_microcode(Self::php, BusDirection::Write, Self::nop),
+        //     0x28 => {
+        //         self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::nop);
+        //         self.queue_microcode(Self::read_stack, BusDirection::Read, Self::plp);
+        //     }
+        //     0x48 => self.queue_microcode(Self::pha, BusDirection::Write, Self::nop),
+        //     0x68 => {
+        //         self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::nop);
+        //         self.queue_microcode(Self::read_stack, BusDirection::Read, Self::pla);
+        //     }
+        //     _ => unreachable!(),
+        // }
 
-        match opcode {
-            0x08 => self.queue_microcode(Self::php, BusDirection::Write, Self::nop),
-            0x28 => {
-                self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::nop);
-                self.queue_microcode(Self::read_stack, BusDirection::Read, Self::plp);
-            }
-            0x48 => self.queue_microcode(Self::pha, BusDirection::Write, Self::nop),
-            0x68 => {
-                self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::nop);
-                self.queue_microcode(Self::read_stack, BusDirection::Read, Self::pla);
-            }
-            _ => unreachable!(),
-        }
-
-        self.queue_decode();
+        // self.queue_decode();
     }
 
     fn read_stack(&mut self) {
         self.bus_address = Address(0x100 | self.stack as u16);
-    }
-
-    fn stack_push(&mut self) {
-        self.bus_address = Address(0x100 | self.stack as u16);
-        self.stack = self.stack.wrapping_sub(1);
     }
 
     fn stack_pull(&mut self) {
@@ -236,8 +236,38 @@ impl RP2A03 {
         self.stack = self.stack.wrapping_add(1);
     }
 
-    fn vector<const ABL: u8>(&mut self) {
-        self.bus_address = Address(0xFF00 | ABL as u16);
+    fn push_pch(&mut self, data: &mut u8) {
+        *data = self.pc.high();
+    }
+
+    fn push_pcl(&mut self, data: &mut u8) {
+        *data = self.pc.low();
+    }
+
+    fn push_p(&mut self, data: &mut u8) {
+        *data = self.p.union(StatusFlags::STACK_MASK.complement()).bits();
+    }
+
+    fn pull_pch(&mut self, data: &mut u8) {
+        self.pc.set_high(*data);
+    }
+
+    fn pull_pcl(&mut self, data: &mut u8) {
+        self.pc.set_low(*data);
+    }
+
+    fn pull_p(&mut self, data: &mut u8) {
+        self.p.remove(StatusFlags::STACK_MASK);
+        self.p
+            .insert(StatusFlags::STACK_MASK.intersection(StatusFlags::from_bits_retain(*data)));
+    }
+
+    fn pull_operand(&mut self, data: &mut u8) {
+        self.operand.0 = *data;
+    }
+
+    fn pc_operand(&mut self, data: &mut u8) {
+        self.pc = Address(((*data as u16) << 8) | self.operand.0 as u16);
     }
 
     fn set_pcl(&mut self) {
@@ -252,6 +282,8 @@ impl RP2A03 {
         self.p.set(StatusFlags::Z, value == 0);
         self.p.set(StatusFlags::N, (value as i8) < 0);
     }
+
+    fn nop(&mut self, _: &mut u8) {}
 
     fn bit(&mut self) {
         let result = self.a & self.bus_data;
@@ -304,15 +336,15 @@ impl RP2A03 {
         self.set_value_flags(self.x);
     }
 
-    fn jmp(&mut self) {
-        self.pc = Address((self.bus_data as u16) << 8 | self.operand.0 as u16);
+    fn jmp(&mut self, data: &mut u8) {
+        self.pc = Address((*data as u16) << 8 | self.operand.0 as u16);
     }
 
     fn clc(&mut self) {
         self.p.set(StatusFlags::C, false);
     }
 
-    fn sec(&mut self) {
+    fn sec(&mut self, _: &mut u8) {
         self.p.set(StatusFlags::C, true);
     }
 
@@ -464,8 +496,8 @@ impl RP2A03 {
         self.stack = self.x;
     }
 
-    fn stx(&mut self) {
-        self.bus_data = self.x;
+    fn stx(&mut self, data: &mut u8) {
+        *data = self.x;
     }
 
     fn tax(&mut self) {
@@ -478,8 +510,8 @@ impl RP2A03 {
         self.set_value_flags(self.x);
     }
 
-    fn ldx(&mut self) {
-        self.x = self.bus_data;
+    fn ldx(&mut self, data: &mut u8) {
+        self.x = *data;
         self.set_value_flags(self.x);
     }
 
@@ -499,50 +531,89 @@ impl RP2A03 {
     }
 }
 
+impl AddressMode for RP2A03 {
+    fn pc(&mut self) -> Address {
+        self.pc
+    }
+
+    fn pc_inc(&mut self) -> Address {
+        let address = self.pc;
+        self.pc.increment();
+        address
+    }
+
+    fn pc_offset_wrapping(&mut self) -> Address {
+        Address(
+            ((self.pc.high() as u16) << 8)
+                | self.pc.low().wrapping_add_signed(self.operand.0 as i8) as u16,
+        )
+    }
+
+    fn stack(&mut self) -> Address {
+        let address = Address(0x100 | self.stack as u16);
+        address
+    }
+
+    fn stack_push(&mut self) -> Address {
+        let address = Address(0x100 | self.stack as u16);
+        self.stack = self.stack.wrapping_sub(1);
+        address
+    }
+
+    fn stack_pull(&mut self) -> Address {
+        todo!()
+    }
+
+    fn vector<const VECTOR: u8>(&mut self) -> Address {
+        Address(0xFF00 | VECTOR as u16)
+    }
+
+    fn zeropage(&mut self) -> Address {
+        Address(self.operand.0 as u16)
+    }
+}
+
 impl Cpu for RP2A03 {
     fn cycle(&mut self, bus: &mut impl Bus) {
         self.cycles += 1;
         match self.timing.pop_front().unwrap() {
-            (pre_bus, BusDirection::Read, post_bus) => {
-                pre_bus(self);
-                self.bus_data = bus.read(self.bus_address);
-                post_bus(self);
+            (address_mode, BusDirection::Read, operation) => {
+                let mut data = bus.read(address_mode(self));
+                operation(self, &mut data);
             }
-            (pre_bus, BusDirection::Write, post_bus) => {
-                pre_bus(self);
-                bus.write(self.bus_address, self.bus_data);
-                post_bus(self);
+            (address_mode, BusDirection::Write, operation) => {
+                let mut data = 0;
+                operation(self, &mut data);
+                bus.write(address_mode(self), data);
             }
         }
     }
 
     fn push_microcode(
         &mut self,
-        pre_bus: fn(&mut Self),
+        address_mode: fn(&mut Self) -> Address,
         bus_mode: BusDirection,
-        post_bus: fn(&mut Self),
+        operation: fn(&mut Self, &mut u8),
     ) {
-        self.timing.push_front((pre_bus, bus_mode, post_bus));
+        self.timing.push_front((address_mode, bus_mode, operation));
     }
 
     fn queue_microcode(
         &mut self,
-        pre_bus: fn(&mut Self),
+        address_mode: fn(&mut Self) -> Address,
         bus_mode: BusDirection,
-        post_bus: fn(&mut Self),
+        operation: fn(&mut Self, &mut u8),
     ) {
-        self.timing.push_back((pre_bus, bus_mode, post_bus));
+        self.timing.push_back((address_mode, bus_mode, operation));
     }
 
     fn queue_decode(&mut self) {
-        self.queue_microcode(Self::read_pc_inc, BusDirection::Read, Self::decode_opcode);
+        self.queue_microcode(Self::pc_inc, BusDirection::Read, Self::decode_opcode);
     }
 
-    fn decode(&mut self) {
-        self.decode_opcode();
-    }
-
-    fn nop(&mut self) {}
+    // fn decode(&mut self) {
+    //     self.decode_opcode();
+    // }
 
     fn read_pc(&mut self) {
         self.bus_address = self.pc;
@@ -553,17 +624,17 @@ impl Cpu for RP2A03 {
         self.pc.increment();
     }
 
-    fn push_operand(&mut self) {
+    fn pull_operand(&mut self, data: &mut u8) {
         self.operand.1 = self.operand.0;
-        self.operand.0 = self.bus_data;
+        self.operand.0 = *data;
     }
 
-    fn address_operand(&mut self) {
-        self.bus_address = Address((self.bus_data as u16) << 8 | self.operand.0 as u16);
+    fn address_operand(&mut self, data: &mut u8) {
+        self.address_buffer = Address((*data as u16) << 8 | self.operand.0 as u16);
     }
 
-    fn instruction(&mut self) {
-        (self.instruction)(self)
+    fn instruction(&mut self, data: &mut u8) {
+        (self.instruction)(self, data)
     }
 
     fn load_accumulator(&mut self) {
@@ -578,10 +649,6 @@ impl Cpu for RP2A03 {
         self.bus_data = self.a;
     }
 
-    fn zeropage(&mut self) {
-        self.bus_address = Address(self.operand.0 as u16);
-    }
-
     fn zeropage_indexedx(&mut self) {
         self.bus_address = Address(self.operand.0.wrapping_add(self.x) as u16);
     }
@@ -591,47 +658,38 @@ impl Cpu for RP2A03 {
     }
 
     fn queue_jmp(&mut self) {
-        self.queue_microcode(Self::read_pc_inc, BusDirection::Read, Self::push_operand);
-        self.queue_microcode(Self::read_pc_inc, BusDirection::Read, Self::jmp);
+        self.queue_microcode(Self::pc_inc, BusDirection::Read, Self::pull_operand);
+        self.queue_microcode(Self::pc_inc, BusDirection::Read, Self::jmp);
         self.queue_decode();
     }
 
     fn queue_jsr(&mut self) {
-        self.queue_microcode(Self::read_pc_inc, BusDirection::Read, Self::push_operand);
-        self.queue_microcode(Self::read_stack, BusDirection::Read, Self::stack_push);
-        self.queue_microcode(
-            |cpu| cpu.bus_data = cpu.pc.high(),
-            BusDirection::Write,
-            Self::stack_push,
-        );
-        self.queue_microcode(
-            |cpu| cpu.bus_data = cpu.pc.low(),
-            BusDirection::Write,
-            Self::nop,
-        );
-        self.queue_microcode(Self::read_pc_inc, BusDirection::Read, |cpu| {
-            cpu.pc = Address((cpu.bus_data as u16) << 8 | cpu.operand.0 as u16)
-        });
-
+        self.queue_microcode(Self::pc_inc, BusDirection::Read, Self::pull_operand);
+        self.queue_microcode(Self::stack, BusDirection::Read, Self::nop);
+        self.queue_microcode(Self::stack_push, BusDirection::Write, Self::push_pch);
+        self.queue_microcode(Self::stack_push, BusDirection::Write, Self::push_pcl);
+        self.queue_microcode(Self::pc_inc, BusDirection::Read, Self::pc_operand);
         self.queue_decode();
     }
 
     fn queue_rti(&mut self) {
-        self.queue_microcode(Self::read_pc_inc, BusDirection::Read, Self::nop);
-        self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::nop);
-        self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::plp);
-        self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::set_pcl);
-        self.queue_microcode(Self::read_stack, BusDirection::Read, Self::set_pch);
-        self.queue_decode();
+        todo!();
+        // self.queue_microcode(Self::read_pc_inc, BusDirection::Read, Self::nop);
+        // self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::nop);
+        // self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::plp);
+        // self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::set_pcl);
+        // self.queue_microcode(Self::read_stack, BusDirection::Read, Self::set_pch);
+        // self.queue_decode();
     }
 
     fn queue_rts(&mut self) {
-        self.queue_microcode(Self::read_pc_inc, BusDirection::Read, Self::nop);
-        self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::nop);
-        self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::set_pcl);
-        self.queue_microcode(Self::read_stack, BusDirection::Read, Self::set_pch);
-        self.queue_microcode(Self::read_pc_inc, BusDirection::Read, Self::nop);
-        self.queue_decode();
+        todo!();
+        // self.queue_microcode(Self::read_pc_inc, BusDirection::Read, Self::nop);
+        // self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::nop);
+        // self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::set_pcl);
+        // self.queue_microcode(Self::read_stack, BusDirection::Read, Self::set_pch);
+        // self.queue_microcode(Self::read_pc_inc, BusDirection::Read, Self::nop);
+        // self.queue_decode();
     }
 }
 
