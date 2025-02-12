@@ -150,10 +150,11 @@ impl RP2A03 {
         if should_branch {
             self.queue_microcode(Self::nop, BusDirection::Read, |cpu| {
                 cpu.pc.offset(cpu.operand.0 as i8);
+                cpu.bus_address = cpu.pc;
                 cpu.bus_address.set_low(cpu.pc.low());
 
                 if cpu.pc != cpu.bus_address {
-                    cpu.queue_microcode(Self::nop, BusDirection::Read, Self::nop);
+                    cpu.push_microcode(Self::nop, BusDirection::Read, Self::nop);
                 }
             });
         }
@@ -163,17 +164,21 @@ impl RP2A03 {
 
     fn decode_addressing<IO: IOMode>(&mut self, opcode: u8, instruction: fn(&mut Self))
     where
-        Absolute: AddressingMode<Self, IO>,
+        Implied: AddressingMode<Self, IO>,
         Accumulator: AddressingMode<Self, IO>,
         Immediate: AddressingMode<Self, IO>,
-        Implied: AddressingMode<Self, IO>,
+        Absolute: AddressingMode<Self, IO>,
         ZeroPage: AddressingMode<Self, IO>,
+        // ZeroPageIndexed
+        // AbsoluteIndexed
+        IndirectIndexedX: AddressingMode<Self, IO>,
+        // IndirectIndexedY
     {
         self.instruction = instruction;
 
         match opcode & 0x1f {
             0x00 | 0x02 => Immediate::enqueue(self),
-            0x01 | 0x03 => unimplemented!("(d,x)"),
+            0x01 | 0x03 => IndirectIndexedX::enqueue(self),
             0x04..=0x07 => ZeroPage::enqueue(self),
             0x08 | 0x0A => Accumulator::enqueue(self),
             0x09 | 0x0B => Immediate::enqueue(self),
@@ -483,16 +488,23 @@ impl Cpu for RP2A03 {
             (pre_bus, BusDirection::Read, post_bus) => {
                 pre_bus(self);
                 self.bus_data = bus.read(self.bus_address);
-                eprintln!("{:?} => {:02X}", self.bus_address, self.bus_data);
                 post_bus(self);
             }
             (pre_bus, BusDirection::Write, post_bus) => {
                 pre_bus(self);
                 bus.write(self.bus_address, self.bus_data);
-                eprintln!("{:?} <= {:02X}", self.bus_address, self.bus_data);
                 post_bus(self);
             }
         }
+    }
+
+    fn push_microcode(
+        &mut self,
+        pre_bus: fn(&mut Self),
+        bus_mode: BusDirection,
+        post_bus: fn(&mut Self),
+    ) {
+        self.timing.push_front((pre_bus, bus_mode, post_bus));
     }
 
     fn queue_microcode(
@@ -540,12 +552,24 @@ impl Cpu for RP2A03 {
         self.a = self.bus_data;
     }
 
+    fn address_increment(&mut self) {
+        self.bus_address.increment();
+    }
+
     fn store_accumulator(&mut self) {
         self.bus_data = self.a;
     }
 
     fn zeropage(&mut self) {
-        self.bus_address = Address(self.bus_data as u16);
+        self.bus_address = Address(self.operand.0 as u16);
+    }
+
+    fn zeropage_indexedx(&mut self) {
+        self.bus_address = Address(self.operand.0.wrapping_add(self.x) as u16);
+    }
+
+    fn zeropage_indexedx_inc(&mut self) {
+        self.bus_address = Address(self.operand.1.wrapping_add(self.x).wrapping_add(1) as u16);
     }
 
     fn queue_jmp(&mut self) {

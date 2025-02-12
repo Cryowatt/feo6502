@@ -165,12 +165,16 @@ impl<CPU: Cpu, Mapper: BusDevice> System<CPU, Mapper> {
 
 impl<Mapper: BusDevice> Bus for SystemBus<Mapper> {
     fn read(&self, address: Address) -> u8 {
-        self.ram
+        let data = self
+            .ram
             .read(address)
-            .unwrap_or_else(|| self.mapper.read(address).unwrap())
+            .unwrap_or_else(|| self.mapper.read(address).unwrap());
+        eprintln!("{:?} => {:02X}", address, data);
+        data
     }
 
     fn write(&mut self, address: Address, data: u8) {
+        eprintln!("{:?} <= {:02X}", address, data);
         self.ram.write(address, data);
         self.mapper.write(address, data);
     }
@@ -312,7 +316,7 @@ mod tests {
             };
 
             log.opcode = system.bus.read(log.pc);
-            println!("{}", log);
+            println!("FIXING OPCODE {}", log);
 
             assert_eq!(
                 expected_log.pc, log.pc,
