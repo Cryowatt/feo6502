@@ -155,7 +155,12 @@ pub mod addressing {
 
     impl<CPU: Cpu> AddressingMode<CPU, ReadWrite> for Absolute {
         fn enqueue(cpu: &mut CPU) {
-            todo!()
+            cpu.queue_microcode(CPU::read_pc_inc, BusDirection::Read, CPU::push_operand);
+            cpu.queue_microcode(CPU::read_pc_inc, BusDirection::Read, CPU::address_operand);
+            cpu.queue_microcode(CPU::nop, BusDirection::Read, CPU::nop);
+            cpu.queue_microcode(CPU::nop, BusDirection::Write, CPU::instruction);
+            cpu.queue_microcode(CPU::nop, BusDirection::Write, CPU::nop);
+            cpu.queue_decode();
         }
     }
 
