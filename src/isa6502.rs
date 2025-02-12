@@ -180,7 +180,11 @@ pub mod addressing {
 
     impl<CPU: Cpu> AddressingMode<CPU, ReadWrite> for ZeroPage {
         fn enqueue(cpu: &mut CPU) {
-            todo!()
+            cpu.queue_microcode(CPU::read_pc_inc, BusDirection::Read, CPU::push_operand);
+            cpu.queue_microcode(CPU::zeropage, BusDirection::Read, CPU::nop);
+            cpu.queue_microcode(CPU::zeropage, BusDirection::Write, CPU::instruction);
+            cpu.queue_microcode(CPU::zeropage, BusDirection::Write, CPU::nop);
+            cpu.queue_decode();
         }
     }
 
@@ -231,7 +235,20 @@ pub mod addressing {
 
     impl<CPU: Cpu> AddressingMode<CPU, Write> for IndirectIndexedX {
         fn enqueue(cpu: &mut CPU) {
-            todo!()
+            cpu.queue_microcode(CPU::read_pc_inc, BusDirection::Read, CPU::push_operand);
+            cpu.queue_microcode(CPU::zeropage, BusDirection::Read, CPU::nop);
+            cpu.queue_microcode(
+                CPU::zeropage_indexedx,
+                BusDirection::Read,
+                CPU::push_operand,
+            );
+            cpu.queue_microcode(
+                CPU::zeropage_indexedx_inc,
+                BusDirection::Read,
+                CPU::address_operand,
+            );
+            cpu.queue_microcode(CPU::instruction, BusDirection::Write, CPU::nop);
+            cpu.queue_decode();
         }
     }
 

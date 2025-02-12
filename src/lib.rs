@@ -316,7 +316,7 @@ mod tests {
             };
 
             log.opcode = system.bus.read(log.pc);
-            println!("FIXING OPCODE {}", log);
+            println!("{} FIXED OPCODE", log);
 
             assert_eq!(
                 expected_log.pc, log.pc,
