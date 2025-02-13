@@ -10,11 +10,7 @@ pub mod rom;
 
 #[derive(Debug)]
 pub struct RP2A03 {
-    timing: VecDeque<(
-        fn(&mut Self) -> Address,
-        BusDirection,
-        fn(&mut Self, &mut u8),
-    )>,
+    timing: VecDeque<(fn(&mut Self) -> Address, BusDirection<Self>)>,
     pc: Address,
     stack: u8,
     address_buffer: Address,
@@ -25,11 +21,34 @@ pub struct RP2A03 {
     y: u8,
     p: StatusFlags,
     opcode: u8,
-    instruction: fn(&mut RP2A03, &mut u8),
+    // instruction: fn(&mut RP2A03, &mut u8),
     operand: (u8, u8),
     // result: &'_ mut u8,
     cycles: u32,
 }
+
+trait ReadInstructions {
+    fn nop(&mut self, _: u8) {}
+    fn pcl(&mut self, data: u8);
+    fn pch(&mut self, data: u8);
+    fn php(&mut self, _: u8) {}
+}
+
+impl ReadInstructions for RP2A03 {
+    fn pcl(&mut self, data: u8) {
+        self.pc.set_low(data);
+    }
+
+    fn pch(&mut self, data: u8) {
+        self.pc.set_high(data);
+    }
+}
+
+trait WriteInstructions {
+    fn nop(&mut self, _: u8) {}
+}
+
+impl WriteInstructions for RP2A03 {}
 
 impl RP2A03 {
     pub fn new() -> Self {
@@ -46,7 +65,6 @@ impl RP2A03 {
             p: StatusFlags::Default,
             opcode: 0,
             operand: (0, 0),
-            instruction: |_, _| unreachable!(),
             cycles: 0,
         };
         cpu.reset();
@@ -57,13 +75,13 @@ impl RP2A03 {
         self.stack = 0;
         self.p.set(StatusFlags::Default, true);
         self.timing.clear();
-        self.queue_microcode(Self::pc_inc, BusDirection::Read, Self::nop);
-        self.queue_microcode(Self::pc_inc, BusDirection::Read, Self::nop);
-        self.queue_microcode(Self::stack_push, BusDirection::Read, Self::push_pch);
-        self.queue_microcode(Self::stack_push, BusDirection::Read, Self::push_pcl);
-        self.queue_microcode(Self::stack_push, BusDirection::Read, Self::push_p);
-        self.queue_microcode(Self::vector::<0xFC>, BusDirection::Read, Self::pull_pcl);
-        self.queue_microcode(Self::vector::<0xFD>, BusDirection::Read, Self::pull_pch);
+        self.queue_microcode(Self::pc_inc, BusDirection::Read(ReadInstructions::nop));
+        self.queue_microcode(Self::pc_inc, BusDirection::Read(ReadInstructions::nop));
+        self.queue_microcode(Self::stack_push, BusDirection::Read(ReadInstructions::nop));
+        self.queue_microcode(Self::stack_push, BusDirection::Read(ReadInstructions::nop));
+        self.queue_microcode(Self::stack_push, BusDirection::Read(ReadInstructions::nop));
+        self.queue_microcode(Self::vector::<0xFC>, BusDirection::Read(Self::pcl));
+        self.queue_microcode(Self::vector::<0xFD>, BusDirection::Read(Self::pch));
         self.queue_decode();
     }
 
@@ -87,53 +105,53 @@ impl RP2A03 {
             match (high, row, column, block) {
                 // Control
                 (_, 0x2, 0x0, _) => self.queue_jsr(),
-                // (_, 0x4, 0x0, _) => self.queue_rti(),
-                // (_, 0x6, 0x0, _) => self.queue_rts(),
-                // (_, 0x2, 0x4, _) => self.decode_addressing::<Read>(opcode, Self::bit),
-                // (false, _, 0x8, _) => self.decode_stack(opcode),
-                // (_, 0x8, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::dey),
-                // (_, 0xA, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::tay),
-                // (_, 0xC, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::iny),
-                // (_, 0xE, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::inx),
+                (_, 0x4, 0x0, _) => self.queue_rti(),
+                (_, 0x6, 0x0, _) => self.queue_rts(),
+                (_, 0x2, 0x4, _) => self.decode_addressing::<Read>(opcode, Self::bit),
+                (false, _, 0x8, _) => self.decode_stack(opcode),
+                (_, 0x8, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::dey),
+                (_, 0xA, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::tay),
+                (_, 0xC, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::iny),
+                (_, 0xE, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::inx),
                 // (_, 0x2, 0xC, _) => self.decode_addressing::<Read>(opcode, Self::bit),
                 (_, 0x4, 0xC, _) => self.queue_jmp(),
-                // (_, 0x0, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::clc),
+                (_, 0x0, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::clc),
                 (_, 0x2, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::sec),
-                // (_, 0x6, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::sei),
-                // (_, 0xA, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::clv),
-                // (_, 0xC, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::cld),
-                // (_, 0xE, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::sed),
+                (_, 0x6, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::sei),
+                (_, 0xA, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::clv),
+                (_, 0xC, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::cld),
+                (_, 0xE, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::sed),
 
-                // (_, 0x8, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::tya),
-                // (_, 0x8, _, 0) => self.decode_addressing::<Write>(opcode, Self::sty),
-                // (_, 0xA, _, 0) => self.decode_addressing::<Read>(opcode, Self::ldy),
-                // (_, 0xC, _, 0) => self.decode_addressing::<Read>(opcode, Self::cpy),
-                // (_, 0xE, _, 0) => self.decode_addressing::<Read>(opcode, Self::cpx),
+                (_, 0x8, 0x18, _) => self.decode_addressing::<Read>(opcode, Self::tya),
+                (_, 0x8, _, 0) => self.decode_addressing::<Write>(opcode, Self::sty),
+                (_, 0xA, _, 0) => self.decode_addressing::<Read>(opcode, Self::ldy),
+                (_, 0xC, _, 0) => self.decode_addressing::<Read>(opcode, Self::cpy),
+                (_, 0xE, _, 0) => self.decode_addressing::<Read>(opcode, Self::cpx),
 
                 // ALU
-                // (_, 0x0, _, 1) => self.decode_addressing::<Read>(opcode, Self::ora),
-                // (_, 0x2, _, 1) => self.decode_addressing::<Read>(opcode, Self::and),
-                // (_, 0x4, _, 1) => self.decode_addressing::<Read>(opcode, Self::eor),
-                // (_, 0x6, _, 1) => self.decode_addressing::<Read>(opcode, Self::adc),
-                // (_, 0x8, _, 1) => self.decode_addressing::<Write>(opcode, Self::sta),
-                // (_, 0xA, _, 1) => self.decode_addressing::<Read>(opcode, Self::lda),
-                // (_, 0xC, _, 1) => self.decode_addressing::<Read>(opcode, Self::cmp),
-                // (_, 0xE, _, 1) => self.decode_addressing::<Read>(opcode, Self::sbc),
+                (_, 0x0, _, 1) => self.decode_addressing::<Read>(opcode, Self::ora),
+                (_, 0x2, _, 1) => self.decode_addressing::<Read>(opcode, Self::and),
+                (_, 0x4, _, 1) => self.decode_addressing::<Read>(opcode, Self::eor),
+                (_, 0x6, _, 1) => self.decode_addressing::<Read>(opcode, Self::adc),
+                (_, 0x8, _, 1) => self.decode_addressing::<Write>(opcode, Self::sta),
+                (_, 0xA, _, 1) => self.decode_addressing::<Read>(opcode, Self::lda),
+                (_, 0xC, _, 1) => self.decode_addressing::<Read>(opcode, Self::cmp),
+                (_, 0xE, _, 1) => self.decode_addressing::<Read>(opcode, Self::sbc),
 
                 // RMW
-                // (_, 0x0, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::asl),
-                // (_, 0x2, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::rol),
-                // (_, 0x4, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::lsr),
-                // (_, 0x6, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::ror),
-                // (_, 0x8, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::txa),
-                // (_, 0x8, 0x1A, _) => self.decode_addressing::<Read>(opcode, Self::txs),
+                (_, 0x0, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::asl),
+                (_, 0x2, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::rol),
+                (_, 0x4, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::lsr),
+                (_, 0x6, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::ror),
+                (_, 0x8, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::txa),
+                (_, 0x8, 0x1A, _) => self.decode_addressing::<Read>(opcode, Self::txs),
                 (_, 0x8, _, 2) => self.decode_addressing::<Write>(opcode, Self::stx),
-                // (_, 0xA, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::tax),
-                // (_, 0xA, 0x1A, _) => self.decode_addressing::<Read>(opcode, Self::tsx),
+                (_, 0xA, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::tax),
+                (_, 0xA, 0x1A, _) => self.decode_addressing::<Read>(opcode, Self::tsx),
                 (_, 0xA, _, 2) => self.decode_addressing::<Read>(opcode, Self::ldx),
-                // (_, 0xC, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::dex),
+                (_, 0xC, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::dex),
                 // (_, 0xC, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::dec),
-                (_, 0xE, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::nop),
+                (_, 0xE, 0xA, _) => self.decode_addressing::<Read>(opcode, ReadInstructions::nop),
                 // (_, 0xE, _, 2) => self.decode_addressing::<ReadWrite>(opcode, Self::inc),
 
                 // Illegal
@@ -155,21 +173,25 @@ impl RP2A03 {
             _ => todo!("{:02X}", opcode),
         };
 
-        self.queue_microcode(Self::pc_inc, BusDirection::Read, Self::pull_operand);
+        self.queue_microcode(Self::pc_inc, BusDirection::Read(Self::pull_operand));
 
         if should_branch {
-            self.queue_microcode(Self::pc, BusDirection::Read, |cpu, _| {
-                let mut pc = cpu.pc;
-                pc.offset(cpu.operand.0 as i8);
+            self.queue_microcode(
+                Self::pc,
+                BusDirection::Read(|cpu, _| {
+                    let mut pc = cpu.pc;
+                    pc.offset(cpu.operand.0 as i8);
 
-                if cpu.pc.high() != pc.high() {
-                    cpu.push_microcode(Self::pc_offset_wrapping, BusDirection::Read, |cpu, _| {
-                        cpu.pc.offset(cpu.operand.0 as i8)
-                    });
-                } else {
-                    cpu.pc = pc;
-                }
-            });
+                    if cpu.pc.high() != pc.high() {
+                        cpu.push_microcode(
+                            Self::pc_offset_wrapping,
+                            BusDirection::Read(|cpu, _| cpu.pc.offset(cpu.operand.0 as i8)),
+                        );
+                    } else {
+                        cpu.pc = pc;
+                    }
+                }),
+            );
         }
 
         self.queue_decode();
@@ -207,34 +229,33 @@ impl RP2A03 {
     }
 
     fn decode_stack(&mut self, opcode: u8) {
-        todo!();
-        // self.queue_microcode(Self::read_pc, BusDirection::Read, Self::nop);
+        self.queue_microcode(Self::pc, BusDirection::Read(Self::nop));
 
-        // match opcode {
-        //     0x08 => self.queue_microcode(Self::php, BusDirection::Write, Self::nop),
-        //     0x28 => {
-        //         self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::nop);
-        //         self.queue_microcode(Self::read_stack, BusDirection::Read, Self::plp);
-        //     }
-        //     0x48 => self.queue_microcode(Self::pha, BusDirection::Write, Self::nop),
-        //     0x68 => {
-        //         self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::nop);
-        //         self.queue_microcode(Self::read_stack, BusDirection::Read, Self::pla);
-        //     }
-        //     _ => unreachable!(),
-        // }
+        match opcode {
+            0x08 => self.queue_microcode(Self::stack_push, BusDirection::Write(Self::php)),
+            0x28 => {
+                self.queue_microcode(Self::stack, BusDirection::Read(Self::nop));
+                self.queue_microcode(Self::stack_pull, BusDirection::Read(Self::plp));
+            }
+            0x48 => self.queue_microcode(Self::stack_push, BusDirection::Write(Self::pha)),
+            0x68 => {
+                self.queue_microcode(Self::stack, BusDirection::Read(Self::nop));
+                self.queue_microcode(Self::stack_pull, BusDirection::Read(Self::pla));
+            }
+            _ => unreachable!(),
+        }
 
-        // self.queue_decode();
+        self.queue_decode();
     }
 
     fn read_stack(&mut self) {
         self.bus_address = Address(0x100 | self.stack as u16);
     }
 
-    fn stack_pull(&mut self) {
-        self.bus_address = Address(0x100 | self.stack as u16);
-        self.stack = self.stack.wrapping_add(1);
-    }
+    // fn stack_pull(&mut self) {
+    //     self.bus_address = Address(0x100 | self.stack as u16);
+    //     self.stack = self.stack.wrapping_add(1);
+    // }
 
     fn push_pch(&mut self, data: &mut u8) {
         *data = self.pc.high();
@@ -242,10 +263,6 @@ impl RP2A03 {
 
     fn push_pcl(&mut self, data: &mut u8) {
         *data = self.pc.low();
-    }
-
-    fn push_p(&mut self, data: &mut u8) {
-        *data = self.p.union(StatusFlags::STACK_MASK.complement()).bits();
     }
 
     fn pull_pch(&mut self, data: &mut u8) {
@@ -256,14 +273,8 @@ impl RP2A03 {
         self.pc.set_low(*data);
     }
 
-    fn pull_p(&mut self, data: &mut u8) {
-        self.p.remove(StatusFlags::STACK_MASK);
-        self.p
-            .insert(StatusFlags::STACK_MASK.intersection(StatusFlags::from_bits_retain(*data)));
-    }
-
-    fn pull_operand(&mut self, data: &mut u8) {
-        self.operand.0 = *data;
+    fn pull_operand(&mut self, data: u8) {
+        self.operand.0 = data;
     }
 
     fn pc_operand(&mut self, data: &mut u8) {
@@ -283,55 +294,48 @@ impl RP2A03 {
         self.p.set(StatusFlags::N, (value as i8) < 0);
     }
 
-    fn nop(&mut self, _: &mut u8) {}
+    // fn nop(&mut self, _: &mut u8) {}
 
-    fn bit(&mut self) {
-        let result = self.a & self.bus_data;
+    fn bit(&mut self, data: &mut u8) {
+        let result = self.a & *data;
         let flags = StatusFlags::N | StatusFlags::V;
         self.p.remove(flags);
-        self.p.insert(StatusFlags::from_bits_retain(
-            (flags.bits() & self.bus_data),
-        ));
+        self.p
+            .insert(StatusFlags::from_bits_retain((flags.bits() & *data)));
         self.p.set(StatusFlags::Z, result == 0);
     }
-    fn php(&mut self) {
-        self.stack_push();
-        self.bus_data = self.p.union(StatusFlags::STACK_MASK.complement()).bits();
-    }
 
-    fn plp(&mut self) {
+    fn plp(&mut self, data: &mut u8) {
         self.p.remove(StatusFlags::STACK_MASK);
-        self.p.insert(
-            StatusFlags::STACK_MASK.intersection(StatusFlags::from_bits_retain(self.bus_data)),
-        );
+        self.p
+            .insert(StatusFlags::STACK_MASK.intersection(StatusFlags::from_bits_retain(*data)));
     }
 
-    fn pha(&mut self) {
-        self.stack_push();
-        self.bus_data = self.a;
+    fn pha(&mut self, data: &mut u8) {
+        *data = self.a;
     }
 
-    fn pla(&mut self) {
-        self.a = self.bus_data;
+    fn pla(&mut self, data: &mut u8) {
+        self.a = *data;
         self.set_value_flags(self.a);
     }
 
-    fn dey(&mut self) {
+    fn dey(&mut self, _: &mut u8) {
         self.y = self.y.wrapping_sub(1);
         self.set_value_flags(self.y);
     }
 
-    fn tay(&mut self) {
+    fn tay(&mut self, _: &mut u8) {
         self.y = self.a;
         self.set_value_flags(self.y);
     }
 
-    fn iny(&mut self) {
+    fn iny(&mut self, _: &mut u8) {
         self.y = self.y.wrapping_add(1);
         self.set_value_flags(self.y);
     }
 
-    fn inx(&mut self) {
+    fn inx(&mut self, _: &mut u8) {
         self.x = self.x.wrapping_add(1);
         self.set_value_flags(self.x);
     }
@@ -340,7 +344,7 @@ impl RP2A03 {
         self.pc = Address((*data as u16) << 8 | self.operand.0 as u16);
     }
 
-    fn clc(&mut self) {
+    fn clc(&mut self, _: &mut u8) {
         self.p.set(StatusFlags::C, false);
     }
 
@@ -348,151 +352,145 @@ impl RP2A03 {
         self.p.set(StatusFlags::C, true);
     }
 
-    fn sei(&mut self) {
+    fn sei(&mut self, _: &mut u8) {
         self.p.set(StatusFlags::I, true);
     }
 
-    fn clv(&mut self) {
+    fn clv(&mut self, _: &mut u8) {
         self.p.set(StatusFlags::V, false);
     }
 
-    fn cld(&mut self) {
+    fn cld(&mut self, _: &mut u8) {
         self.p.set(StatusFlags::D, false);
     }
 
-    fn sed(&mut self) {
+    fn sed(&mut self, _: &mut u8) {
         self.p.set(StatusFlags::D, true);
     }
 
-    fn tya(&mut self) {
+    fn tya(&mut self, _: &mut u8) {
         self.a = self.y;
         self.set_value_flags(self.a);
     }
 
-    fn sty(&mut self) {
-        self.bus_data = self.y;
+    fn sty(&mut self, data: &mut u8) {
+        *data = self.y;
     }
 
-    fn ldy(&mut self) {
-        self.y = self.bus_data;
+    fn ldy(&mut self, data: &mut u8) {
+        self.y = *data;
         self.set_value_flags(self.y);
     }
 
-    fn cpy(&mut self) {
-        self.p.set(StatusFlags::C, self.y >= self.bus_data);
-        self.p.set(StatusFlags::Z, self.y == self.bus_data);
-        self.p.set(
-            StatusFlags::N,
-            (self.y.wrapping_sub(self.bus_data) as i8) < 0,
-        );
+    fn cpy(&mut self, data: &mut u8) {
+        self.p.set(StatusFlags::C, self.y >= *data);
+        self.p.set(StatusFlags::Z, self.y == *data);
+        self.p
+            .set(StatusFlags::N, (self.y.wrapping_sub(*data) as i8) < 0);
     }
 
-    fn cpx(&mut self) {
-        self.p.set(StatusFlags::C, self.x >= self.bus_data);
-        self.p.set(StatusFlags::Z, self.x == self.bus_data);
-        self.p.set(
-            StatusFlags::N,
-            (self.x.wrapping_sub(self.bus_data) as i8) < 0,
-        );
+    fn cpx(&mut self, data: &mut u8) {
+        self.p.set(StatusFlags::C, self.x >= *data);
+        self.p.set(StatusFlags::Z, self.x == *data);
+        self.p
+            .set(StatusFlags::N, (self.x.wrapping_sub(*data) as i8) < 0);
     }
 
-    fn ora(&mut self) {
-        self.a = self.a | self.bus_data;
+    fn ora(&mut self, data: &mut u8) {
+        self.a = self.a | *data;
         self.set_value_flags(self.a);
     }
 
-    fn and(&mut self) {
-        self.a = self.a & self.bus_data;
+    fn and(&mut self, data: &mut u8) {
+        self.a = self.a & *data;
         self.set_value_flags(self.a);
     }
 
-    fn eor(&mut self) {
-        self.a = self.a ^ self.bus_data;
+    fn eor(&mut self, data: &mut u8) {
+        self.a = self.a ^ *data;
         self.set_value_flags(self.a);
     }
 
-    fn adc(&mut self) {
-        let (result, add_overflow) = self.a.overflowing_add(self.bus_data);
+    fn adc(&mut self, data: &mut u8) {
+        let (result, add_overflow) = self.a.overflowing_add(*data);
         let (result, carry_overflow) = result.overflowing_add(self.p.bits() & 1);
         self.p.set(StatusFlags::C, add_overflow | carry_overflow);
         self.p.set(
             StatusFlags::V,
-            (result ^ self.a) & (result ^ self.bus_data) & 0x80 > 0,
+            (result ^ self.a) & (result ^ *data) & 0x80 > 0,
         );
         self.a = result;
         self.set_value_flags(self.a);
     }
 
-    fn sta(&mut self) {
-        self.bus_data = self.a;
+    fn sta(&mut self, data: &mut u8) {
+        *data = self.a;
     }
 
-    fn lda(&mut self) {
-        self.a = self.bus_data;
+    fn lda(&mut self, data: &mut u8) {
+        self.a = *data;
         self.set_value_flags(self.a);
     }
 
-    fn cmp(&mut self) {
-        self.p.set(StatusFlags::C, self.a >= self.bus_data);
-        self.p.set(StatusFlags::Z, self.a == self.bus_data);
-        self.p.set(
-            StatusFlags::N,
-            (self.a.wrapping_sub(self.bus_data) as i8) < 0,
-        );
+    fn cmp(&mut self, data: &mut u8) {
+        self.p.set(StatusFlags::C, self.a >= *data);
+        self.p.set(StatusFlags::Z, self.a == *data);
+        self.p
+            .set(StatusFlags::N, (self.a.wrapping_sub(*data) as i8) < 0);
     }
 
-    fn sbc(&mut self) {
-        let (result, add_overflow) = self.a.overflowing_add(!self.bus_data);
+    fn sbc(&mut self, data: &mut u8) {
+        let (result, add_overflow) = self.a.overflowing_add(!*data);
         let (result, carry_overflow) = result.overflowing_add(self.p.bits() & 1);
         self.p.set(StatusFlags::C, add_overflow | carry_overflow);
         self.p.set(
             StatusFlags::V,
-            (result ^ self.a) & (result ^ !self.bus_data) & 0x80 > 0,
+            (result ^ self.a) & (result ^ !*data) & 0x80 > 0,
         );
         self.a = result;
         self.set_value_flags(self.a);
     }
 
-    fn asl(&mut self) {
-        self.p.set(StatusFlags::C, self.bus_data & 0b1000_0000 > 0);
-        self.bus_data = self.bus_data << 1;
-        self.set_value_flags(self.bus_data);
+    fn asl(&mut self, data: &mut u8) {
+        self.p.set(StatusFlags::C, *data & 0b1000_0000 > 0);
+        *data <<= 1;
+        self.set_value_flags(*data);
     }
 
-    fn rol(&mut self) {
+    fn rol(&mut self, data: &mut u8) {
         let bit0 = if self.p.contains(StatusFlags::C) {
             0b1
         } else {
             0
         };
-        self.p.set(StatusFlags::C, self.bus_data & 0b1000_0000 > 0);
-        self.bus_data = (self.bus_data << 1) | bit0;
-        self.set_value_flags(self.bus_data);
+        self.p.set(StatusFlags::C, *data & 0b1000_0000 > 0);
+        *data = (*data << 1) | bit0;
+        self.set_value_flags(*data);
     }
 
-    fn lsr(&mut self) {
-        self.p.set(StatusFlags::C, self.bus_data & 1 > 0);
-        self.bus_data = self.bus_data >> 1;
-        self.set_value_flags(self.bus_data);
+    fn lsr(&mut self, data: &mut u8) {
+        self.p.set(StatusFlags::C, *data & 1 > 0);
+        *data >>= 1;
+        self.set_value_flags(*data);
     }
 
-    fn ror(&mut self) {
+    fn ror(&mut self, data: &mut u8) {
         let bit7 = if self.p.contains(StatusFlags::C) {
             0b1000_0000
         } else {
             0
         };
-        self.p.set(StatusFlags::C, self.bus_data & 1 > 0);
-        self.bus_data = (self.bus_data >> 1) | bit7;
-        self.set_value_flags(self.bus_data);
+        self.p.set(StatusFlags::C, *data & 1 > 0);
+        *data = (*data >> 1) | bit7;
+        self.set_value_flags(*data);
     }
 
-    fn txa(&mut self) {
-        self.a = self.x;
-        self.set_value_flags(self.a);
+    fn txa(&mut self, data: &mut u8) {
+        *data = self.x;
+        self.set_value_flags(*data);
     }
 
-    fn txs(&mut self) {
+    fn txs(&mut self, _: &mut u8) {
         self.stack = self.x;
     }
 
@@ -500,12 +498,12 @@ impl RP2A03 {
         *data = self.x;
     }
 
-    fn tax(&mut self) {
-        self.x = self.a;
+    fn tax(&mut self, data: &mut u8) {
+        self.x = *data;
         self.set_value_flags(self.x);
     }
 
-    fn tsx(&mut self) {
+    fn tsx(&mut self, _: &mut u8) {
         self.x = self.stack;
         self.set_value_flags(self.x);
     }
@@ -515,7 +513,7 @@ impl RP2A03 {
         self.set_value_flags(self.x);
     }
 
-    fn dex(&mut self) {
+    fn dex(&mut self, data: &mut u8) {
         self.x = self.x.wrapping_sub(1);
         self.set_value_flags(self.x);
     }
@@ -532,6 +530,23 @@ impl RP2A03 {
 }
 
 impl AddressMode for RP2A03 {
+    fn address(&mut self) -> Address {
+        self.address_buffer
+    }
+
+    fn address_indexedx(&mut self) -> Address {
+        self.address_buffer.index(self.x)
+    }
+
+    fn address_inc(&mut self) -> Address {
+        self.address_buffer.index(1)
+    }
+
+    fn buffer(&mut self, address: Address) -> Address {
+        self.address_buffer = address;
+        address
+    }
+
     fn pc(&mut self) -> Address {
         self.pc
     }
@@ -554,14 +569,15 @@ impl AddressMode for RP2A03 {
         address
     }
 
+    fn stack_pull(&mut self) -> Address {
+        self.stack = self.stack.wrapping_add(1);
+        Address(0x100 | self.stack as u16)
+    }
+
     fn stack_push(&mut self) -> Address {
         let address = Address(0x100 | self.stack as u16);
         self.stack = self.stack.wrapping_sub(1);
         address
-    }
-
-    fn stack_pull(&mut self) -> Address {
-        todo!()
     }
 
     fn vector<const VECTOR: u8>(&mut self) -> Address {
@@ -569,6 +585,7 @@ impl AddressMode for RP2A03 {
     }
 
     fn zeropage(&mut self) -> Address {
+        println!("ZEROPAGE");
         Address(self.operand.0 as u16)
     }
 }
@@ -577,14 +594,13 @@ impl Cpu for RP2A03 {
     fn cycle(&mut self, bus: &mut impl Bus) {
         self.cycles += 1;
         match self.timing.pop_front().unwrap() {
-            (address_mode, BusDirection::Read, operation) => {
-                let mut data = bus.read(address_mode(self));
-                operation(self, &mut data);
+            (address_mode, BusDirection::Read(operation)) => {
+                self.bus_data = bus.read(address_mode(self));
+                operation(self, self.bus_data);
             }
-            (address_mode, BusDirection::Write, operation) => {
-                let mut data = 0;
-                operation(self, &mut data);
-                bus.write(address_mode(self), data);
+            (address_mode, BusDirection::Write(operation)) => {
+                self.bus_data = operation(self);
+                bus.write(address_mode(self), self.bus_data);
             }
         }
     }
@@ -592,8 +608,7 @@ impl Cpu for RP2A03 {
     fn push_microcode(
         &mut self,
         address_mode: fn(&mut Self) -> Address,
-        bus_mode: BusDirection,
-        operation: fn(&mut Self, &mut u8),
+        bus_mode: BusDirection<Self>,
     ) {
         self.timing.push_front((address_mode, bus_mode, operation));
     }
@@ -601,8 +616,7 @@ impl Cpu for RP2A03 {
     fn queue_microcode(
         &mut self,
         address_mode: fn(&mut Self) -> Address,
-        bus_mode: BusDirection,
-        operation: fn(&mut Self, &mut u8),
+        bus_mode: BusDirection<Self>,
     ) {
         self.timing.push_back((address_mode, bus_mode, operation));
     }
@@ -637,25 +651,19 @@ impl Cpu for RP2A03 {
         (self.instruction)(self, data)
     }
 
-    fn load_accumulator(&mut self) {
-        self.a = self.bus_data;
+    fn with_accumulator(&mut self, operation: fn(&mut Self, data: &mut u8)) {
+        let mut data = self.a;
+        operation(self, &mut data);
+        self.a = data;
     }
 
-    fn address_increment(&mut self) {
-        self.bus_address.increment();
-    }
+    // fn load_accumulator(&mut self) {
+    //     self.a = self.bus_data;
+    // }
 
-    fn store_accumulator(&mut self) {
-        self.bus_data = self.a;
-    }
-
-    fn zeropage_indexedx(&mut self) {
-        self.bus_address = Address(self.operand.0.wrapping_add(self.x) as u16);
-    }
-
-    fn zeropage_indexedx_inc(&mut self) {
-        self.bus_address = Address(self.operand.1.wrapping_add(self.x).wrapping_add(1) as u16);
-    }
+    // fn store_accumulator(&mut self) {
+    //     self.bus_data = self.a;
+    // }
 
     fn queue_jmp(&mut self) {
         self.queue_microcode(Self::pc_inc, BusDirection::Read, Self::pull_operand);
@@ -673,23 +681,21 @@ impl Cpu for RP2A03 {
     }
 
     fn queue_rti(&mut self) {
-        todo!();
-        // self.queue_microcode(Self::read_pc_inc, BusDirection::Read, Self::nop);
-        // self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::nop);
-        // self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::plp);
-        // self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::set_pcl);
-        // self.queue_microcode(Self::read_stack, BusDirection::Read, Self::set_pch);
-        // self.queue_decode();
+        self.queue_microcode(Self::pc_inc, BusDirection::Read, Self::nop);
+        self.queue_microcode(Self::stack, BusDirection::Read, Self::nop);
+        self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::plp);
+        self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::pull_pcl);
+        self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::pull_pch);
+        self.queue_decode();
     }
 
     fn queue_rts(&mut self) {
-        todo!();
-        // self.queue_microcode(Self::read_pc_inc, BusDirection::Read, Self::nop);
-        // self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::nop);
-        // self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::set_pcl);
-        // self.queue_microcode(Self::read_stack, BusDirection::Read, Self::set_pch);
-        // self.queue_microcode(Self::read_pc_inc, BusDirection::Read, Self::nop);
-        // self.queue_decode();
+        self.queue_microcode(Self::pc_inc, BusDirection::Read, Self::nop);
+        self.queue_microcode(Self::stack, BusDirection::Read, Self::nop);
+        self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::pull_pcl);
+        self.queue_microcode(Self::stack_pull, BusDirection::Read, Self::pull_pch);
+        self.queue_microcode(Self::pc_inc, BusDirection::Read, Self::nop);
+        self.queue_decode();
     }
 }
 

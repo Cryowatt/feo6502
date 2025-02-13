@@ -9,8 +9,16 @@ pub mod isa6502;
 pub struct Address(u16);
 
 impl Address {
+    pub fn new(high: u8, low: u8) -> Address {
+        Address((high as u16) << 8 | low as u16)
+    }
+
     fn increment(&mut self) {
         self.0 = self.0.wrapping_add(1);
+    }
+
+    fn index(&mut self, index: u8) -> Address {
+        Address::new(self.high(), self.low().wrapping_add(index))
     }
 
     fn offset(&mut self, offset: i8) {
@@ -118,9 +126,9 @@ impl AddressMask {
 }
 
 #[derive(Debug)]
-pub enum BusDirection {
-    Write,
-    Read,
+pub enum BusDirection<CPU> {
+    Write(fn(&mut CPU) -> u8),
+    Read(fn(&mut CPU, data: u8)),
 }
 
 pub trait Bus {
