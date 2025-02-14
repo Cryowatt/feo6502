@@ -71,6 +71,7 @@ pub trait Decode: MicrocodeControl + AddressMode {
     fn decode_branch(&mut self, opcode: u8);
     fn decode_stack(&mut self, row: u8);
     fn queue_jmp(&mut self);
+    fn queue_indirect_jmp(&mut self);
     fn queue_jsr(&mut self);
     fn queue_rti(&mut self);
     fn queue_rts(&mut self);

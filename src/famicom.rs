@@ -152,6 +152,7 @@ impl Decode for RP2A03 {
                 (_, 0xE, 0x8, _) => self.decode_addressing::<INX, Read>(column),
                 (_, 0x2, 0xC, _) => self.decode_addressing::<BIT, Read>(column),
                 (_, 0x4, 0xC, _) => self.queue_jmp(),
+                (_, 0x6, 0xC, _) => self.queue_indirect_jmp(),
                 (_, 0x0, 0x18, _) => self.decode_addressing::<CLC, Read>(column),
                 (_, 0x2, 0x18, _) => self.decode_addressing::<SEC, Read>(column),
                 (_, 0x6, 0x18, _) => self.decode_addressing::<SEI, Read>(column),
@@ -288,6 +289,14 @@ impl Decode for RP2A03 {
     fn queue_jmp(&mut self) {
         self.queue_microcode(Self::pc_inc, BusDirection::Read(Self::pull_operand));
         self.queue_read::<JMP>(Self::pc_inc);
+        self.queue_decode();
+    }
+
+    fn queue_indirect_jmp(&mut self) {
+        self.queue_microcode(Self::pc_inc, BusDirection::Read(Self::buffer_low));
+        self.queue_microcode(Self::pc_inc, BusDirection::Read(Self::buffer_high));
+        self.queue_microcode(Self::address, BusDirection::Read(Self::pull_operand));
+        self.queue_read::<JMP>(|cpu| cpu.address().index(1));
         self.queue_decode();
     }
 
