@@ -1,7 +1,9 @@
 use std::{fmt, num::ParseIntError, ops, str::FromStr};
 
-use isa6502::Cpu;
+use devices::{BusDevice, RamBank};
+use isa6502::*;
 
+pub mod devices;
 pub mod famicom;
 pub mod isa6502;
 
@@ -17,7 +19,7 @@ impl Address {
         self.0 = self.0.wrapping_add(1);
     }
 
-    fn index(&mut self, index: u8) -> Address {
+    fn index(&self, index: u8) -> Address {
         Address::new(self.high(), self.low().wrapping_add(index))
     }
 
@@ -25,7 +27,7 @@ impl Address {
         self.0 = self.0.wrapping_add_signed(offset as i16);
     }
 
-    fn high(&mut self) -> u8 {
+    fn high(&self) -> u8 {
         ((self.0 & 0xff00) >> 8) as u8
     }
 
@@ -33,7 +35,7 @@ impl Address {
         self.0 = (self.0 & 0xff) | (high as u16) << 8;
     }
 
-    fn low(&mut self) -> u8 {
+    fn low(&self) -> u8 {
         (self.0 & 0xff) as u8
     }
 
@@ -45,9 +47,14 @@ impl Address {
 impl fmt::Debug for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "${:04X}", self.0)
-        // f.pad_integral(true, "0"., prefix, buf)
-        // fmt::UpperHex::fmt(&self.0, f)
-        // f.debug_tuple("Address").field(&self.0)..finish()
+    }
+}
+
+impl ops::Add<u8> for Address {
+    type Output = Address;
+
+    fn add(self, rhs: u8) -> Self::Output {
+        Address(self.0.wrapping_add(rhs as u16))
     }
 }
 
@@ -101,7 +108,7 @@ impl FromStr for Address {
     }
 }
 
-struct AddressMask {
+pub struct AddressMask {
     start_address: Address,
     address_mask: u16,
     mirror_mask: u16,
@@ -123,12 +130,6 @@ impl AddressMask {
             None
         }
     }
-}
-
-#[derive(Debug)]
-pub enum BusDirection<CPU> {
-    Write(fn(&mut CPU) -> u8),
-    Read(fn(&mut CPU, data: u8)),
 }
 
 pub trait Bus {
@@ -185,39 +186,6 @@ impl<Mapper: BusDevice> Bus for SystemBus<Mapper> {
         eprintln!("{:?} <= {:02X}", address, data);
         self.ram.write(address, data);
         self.mapper.write(address, data);
-    }
-}
-
-pub trait BusDevice {
-    fn read(&self, address: Address) -> Option<u8>;
-    fn write(&mut self, address: Address, data: u8);
-}
-
-struct RamBank<const SIZE: usize> {
-    map: AddressMask,
-    memory: [u8; SIZE],
-}
-
-impl<const SIZE: usize> RamBank<SIZE> {
-    pub fn new(map: AddressMask) -> Self {
-        Self {
-            map,
-            memory: [0u8; SIZE],
-        }
-    }
-}
-
-impl<const SIZE: usize> BusDevice for RamBank<SIZE> {
-    fn read(&self, address: Address) -> Option<u8> {
-        self.map
-            .remap(address)
-            .map(|ram_address| self.memory[ram_address])
-    }
-
-    fn write(&mut self, address: Address, data: u8) {
-        if let Some(ram_address) = self.map.remap(address) {
-            self.memory[ram_address] = data;
-        }
     }
 }
 

@@ -1,6 +1,80 @@
+use addressing::*;
 use bitflags::bitflags;
+use instructions::{
+    Instruction, MicrocodeControl, ReadInstruction, ReadWriteInstruction, WriteInstruction,
+};
 
-use crate::{Address, Bus, BusDirection};
+use crate::{Address, Bus};
+
+pub mod addressing;
+pub mod instructions;
+
+#[derive(Debug)]
+pub struct Registers {
+    pub pc: Address,
+    pub stack: u8,
+    pub a: u8,
+    pub x: u8,
+    pub y: u8,
+    pub p: StatusFlags,
+    pub address_buffer: Address,
+    pub operand: u8,
+}
+
+impl Registers {
+    pub fn new() -> Self {
+        Self {
+            pc: Address(0),
+            stack: 0,
+            a: 0,
+            x: 0,
+            y: 0,
+            p: StatusFlags::Default,
+            address_buffer: Address(0),
+            operand: 0,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum BusDirection<CPU> {
+    Write(fn(&mut CPU)),
+    Read(fn(&mut CPU)),
+}
+
+pub trait Microcode {
+    // Add everything timing-related in here, queue commands, pc_inc/zeropage/etc. address shit, everything except the actual instructions
+    fn pull_operand(&mut self);
+    fn index_x(&self) -> u8;
+    fn index_y(&self) -> u8;
+    fn buffer_low(&mut self);
+    fn buffer_high(&mut self);
+    fn address_operand(&mut self);
+    fn read_instruction<INST: ReadInstruction>(&mut self);
+    fn write_instruction<INST: WriteInstruction>(&mut self);
+    fn borrow_accumulator(&mut self) -> &mut u8;
+    fn nop(&mut self) {}
+}
+
+pub trait Decode: MicrocodeControl + AddressMode {
+    fn decode_opcode(&mut self);
+    fn decode_addressing<INST: Instruction<IO>, IO: IOMode>(&mut self, column: u8)
+    where
+        Immediate: AddressingMode<Self, INST, IO>,
+        IndexedIndirectX: AddressingMode<Self, INST, IO>,
+        ZeroPage: AddressingMode<Self, INST, IO>,
+        Accumulator: AddressingMode<Self, INST, IO>,
+        IndirectIndexedY: AddressingMode<Self, INST, IO>,
+        Implied: AddressingMode<Self, INST, IO>,
+        Absolute: AddressingMode<Self, INST, IO>,
+        Self: Sized;
+    fn decode_branch(&mut self, opcode: u8);
+    fn decode_stack(&mut self, row: u8);
+    fn queue_jmp(&mut self);
+    fn queue_jsr(&mut self);
+    fn queue_rti(&mut self);
+    fn queue_rts(&mut self);
+}
 
 bitflags! {
     #[derive(Debug, Clone, Copy)]
@@ -15,6 +89,13 @@ bitflags! {
         const STACK_MASK = 0b1100_1111;
         const V = 0b0100_0000;
         const N = 0b1000_0000;
+    }
+}
+
+impl StatusFlags {
+    fn set_value_flags(&mut self, value: u8) {
+        self.set(StatusFlags::Z, value == 0);
+        self.set(StatusFlags::N, (value as i8) < 0);
     }
 }
 
@@ -38,247 +119,4 @@ where
     Self: Sized,
 {
     fn cycle(&mut self, bus: &mut impl Bus);
-    fn push_microcode(
-        &mut self,
-        address_mode: fn(&mut Self) -> Address,
-        bus_mode: BusDirection<Self>,
-    );
-    fn queue_microcode(
-        &mut self,
-        address_mode: fn(&mut Self) -> Address,
-        bus_mode: BusDirection<Self>,
-    );
-    fn queue_decode(&mut self);
-    fn queue_jsr(&mut self);
-    fn queue_jmp(&mut self);
-    fn queue_rti(&mut self);
-    fn queue_rts(&mut self);
-    fn address_operand(&mut self, data: &mut u8);
-    fn read_pc(&mut self);
-    fn read_pc_inc(&mut self);
-    fn pull_operand(&mut self, data: &mut u8);
-    fn instruction(&mut self, data: &mut u8);
-    fn with_accumulator(&mut self, operation: fn(&mut Self, data: &mut u8));
-    // fn load_accumulator(&mut self);
-    // fn store_accumulator(&mut self);
-
-    // fn decode(&mut self);
-    // fn zeropage(&mut self);
-    // fn zeropage_indexedx(&mut self);
-    // fn zeropage_indexedx_inc(&mut self);
-    // fn address_increment(&mut self);
-
-    // fn read_pc_inc(&mut self) -> BusMode;
-    // fn decode(&mut self) -> BusMode;
-    // fn read_operand(&mut self) -> BusMode;
-    // fn read_operand_execute(&mut self) -> BusMode;
-}
-
-pub mod addressing {
-    use crate::{Address, BusDirection};
-
-    use super::{AddressMode, Cpu};
-
-    pub struct Read;
-    pub struct ReadWrite;
-    pub struct Write;
-
-    pub trait IOMode<CPU> {
-        type Instruction;
-    }
-
-    impl<CPU> IOMode<CPU> for Read {
-        type Instruction = fn(&mut CPU, u8);
-    }
-    impl<CPU> IOMode<CPU> for ReadWrite {
-        type Instruction = fn(&mut CPU, u8) -> u8;
-    }
-    impl<CPU> IOMode<CPU> for Write {
-        type Instruction = fn(&mut CPU) -> u8;
-    }
-
-    fn nop<CPU>(_: &mut CPU, _: &mut u8) {}
-    fn buffer<CPU: AddressMode>(cpu: &mut CPU, address: fn(&mut CPU) -> Address) -> Address {
-        let address = address(cpu);
-        cpu.buffer(address);
-        address
-    }
-
-    pub trait AddressingMode<Cpu, Mode: IOMode<Cpu>> {
-        fn enqueue(cpu: &mut Cpu, instruction: Mode::Instruction);
-    }
-
-    pub struct Immediate;
-
-    impl<CPU: Cpu + AddressMode> AddressingMode<CPU, Read> for Immediate {
-        fn enqueue(cpu: &mut CPU, instruction: <Read as IOMode<CPU>>::Instruction) {
-            cpu.queue_microcode(CPU::pc_inc, BusDirection::Read(instruction));
-            cpu.queue_decode();
-        }
-    }
-
-    impl<CPU: Cpu> AddressingMode<CPU, ReadWrite> for Immediate {
-        fn enqueue(cpu: &mut CPU, instruction: <ReadWrite as IOMode<CPU>>::Instruction) {
-            todo!()
-        }
-    }
-
-    impl<CPU: Cpu> AddressingMode<CPU, Write> for Immediate {
-        fn enqueue(cpu: &mut CPU, instruction: <Write as IOMode<CPU>>::Instruction) {
-            todo!()
-        }
-    }
-
-    pub struct IndexedIndirectX;
-
-    impl<CPU: Cpu + AddressMode> AddressingMode<CPU, Read> for IndexedIndirectX {
-        fn enqueue(cpu: &mut CPU, instruction: <Read as IOMode<CPU>>::Instruction) {
-            cpu.queue_microcode(CPU::pc_inc, BusDirection::Read(CPU::pull_operand));
-            cpu.queue_microcode(|cpu| buffer(cpu, CPU::zeropage), BusDirection::Read(nop));
-            cpu.queue_microcode(
-                |cpu| buffer(cpu, CPU::address_indexedx),
-                BusDirection::Read(CPU::pull_operand),
-            );
-            cpu.queue_microcode(CPU::address_inc, BusDirection::Read(CPU::address_operand));
-            cpu.queue_microcode(CPU::address, BusDirection::Read(instruction));
-            cpu.queue_decode();
-        }
-    }
-
-    impl<CPU: Cpu> AddressingMode<CPU, ReadWrite> for IndexedIndirectX {
-        fn enqueue(cpu: &mut CPU, instruction: <ReadWrite as IOMode<CPU>>::Instruction) {
-            todo!()
-        }
-    }
-
-    impl<CPU: Cpu + AddressMode> AddressingMode<CPU, Write> for IndexedIndirectX {
-        fn enqueue(cpu: &mut CPU, instruction: <Write as IOMode<CPU>>::Instruction) {
-            cpu.queue_microcode(CPU::pc_inc, BusDirection::Read(CPU::pull_operand));
-            cpu.queue_microcode(|cpu| buffer(cpu, CPU::zeropage), BusDirection::Read(nop));
-            cpu.queue_microcode(
-                |cpu| buffer(cpu, CPU::address_indexedx),
-                BusDirection::Read(CPU::pull_operand),
-            );
-            cpu.queue_microcode(CPU::address_inc, BusDirection::Read(CPU::address_operand));
-            cpu.queue_microcode(CPU::address, BusDirection::Write(instruction));
-            cpu.queue_decode();
-        }
-    }
-
-    pub struct ZeroPage;
-
-    impl<CPU: Cpu + AddressMode> AddressingMode<CPU, Read> for ZeroPage {
-        fn enqueue(cpu: &mut CPU, instruction: <Read as IOMode<CPU>>::Instruction) {
-            cpu.queue_microcode(CPU::pc_inc, BusDirection::Read(CPU::pull_operand));
-            cpu.queue_microcode(CPU::zeropage, BusDirection::Read(instruction));
-            cpu.queue_decode();
-        }
-    }
-
-    impl<CPU: Cpu + AddressMode> AddressingMode<CPU, ReadWrite> for ZeroPage {
-        fn enqueue(cpu: &mut CPU, instruction: <ReadWrite as IOMode<CPU>>::Instruction) {
-            cpu.queue_microcode(CPU::pc_inc, BusDirection::Read(CPU::pull_operand));
-            cpu.queue_microcode(CPU::zeropage, BusDirection::Read(CPU::latch_data));
-            cpu.queue_microcode(CPU::zeropage, BusDirection::Write(nop));
-            cpu.queue_microcode(CPU::zeropage, BusDirection::Write(instruction));
-            cpu.queue_decode();
-            todo!();
-        }
-    }
-
-    impl<CPU: Cpu + AddressMode> AddressingMode<CPU, Write> for ZeroPage {
-        fn enqueue(cpu: &mut CPU, instruction: <Write as IOMode<CPU>>::Instruction) {
-            cpu.queue_microcode(CPU::pc_inc, BusDirection::Read(CPU::pull_operand));
-            cpu.queue_microcode(CPU::zeropage, BusDirection::Write(instruction));
-            cpu.queue_decode();
-        }
-    }
-
-    pub struct Accumulator;
-
-    impl<CPU: Cpu + AddressMode, IOMODE: IOMode<CPU>> AddressingMode<CPU, IOMODE> for Accumulator {
-        fn enqueue(cpu: &mut CPU, instruction: IOMODE::Instruction) {
-            cpu.queue_microcode(
-                CPU::pc,
-                BusDirection::Read(|cpu, _| {
-                    cpu.with_accumulator(Cpu::instruction);
-                }),
-            );
-            cpu.queue_decode();
-        }
-    }
-
-    pub struct Absolute;
-
-    impl<CPU: Cpu + AddressMode> AddressingMode<CPU, Read> for Absolute {
-        fn enqueue(cpu: &mut CPU, instruction: <Read as IOMode<CPU>>::Instruction) {
-            cpu.queue_microcode(CPU::pc_inc, BusDirection::Read(CPU::pull_operand));
-            cpu.queue_microcode(CPU::pc_inc, BusDirection::Read(CPU::address_operand));
-            cpu.queue_microcode(CPU::address, BusDirection::Read(instruction));
-            cpu.queue_decode();
-        }
-    }
-
-    impl<CPU: Cpu> AddressingMode<CPU, ReadWrite> for Absolute {
-        fn enqueue(cpu: &mut CPU, instruction: <ReadWrite as IOMode<CPU>>::Instruction) {
-            todo!();
-            // cpu.queue_microcode(CPU::read_pc_inc, BusDirection::Read, CPU::push_operand);
-            // cpu.queue_microcode(CPU::read_pc_inc, BusDirection::Read, CPU::address_operand);
-            // cpu.queue_microcode(CPU::nop, BusDirection::Read, CPU::nop);
-            // cpu.queue_microcode(CPU::nop, BusDirection::Write, CPU::instruction);
-            // cpu.queue_microcode(CPU::nop, BusDirection::Write, CPU::nop);
-            // cpu.queue_decode();
-        }
-    }
-
-    impl<CPU: Cpu + AddressMode> AddressingMode<CPU, Write> for Absolute {
-        fn enqueue(cpu: &mut CPU, instruction: <Write as IOMode<CPU>>::Instruction) {
-            cpu.queue_microcode(CPU::pc_inc, BusDirection::Read(CPU::pull_operand));
-            cpu.queue_microcode(CPU::pc_inc, BusDirection::Read(CPU::address_operand));
-            cpu.queue_microcode(CPU::address, BusDirection::Write(instruction));
-            cpu.queue_decode();
-        }
-    }
-
-    pub struct IndirectIndexedY;
-
-    impl<CPU: Cpu> AddressingMode<CPU, Read> for IndirectIndexedY {
-        fn enqueue(cpu: &mut CPU, instruction: <Read as IOMode<CPU>>::Instruction) {
-            todo!();
-            // cpu.queue_microcode(CPU::read_pc_inc, BusDirection::Read, CPU::nop);
-            // cpu.queue_microcode(CPU::zeropage, BusDirection::Read, CPU::address_operand);
-            // cpu.queue_microcode(
-            //     CPU::address_increment,
-            //     BusDirection::Read,
-            //     CPU::address_operand,
-            // );
-            // cpu.queue_microcode(
-            //     |cpu| cpu.zeropage_indexedx()
-            //     CPU::ad,
-            //     BusDirection::Read,
-            //     CPU::address_operand,
-            // );
-        }
-    }
-
-    impl<CPU: Cpu> AddressingMode<CPU, ReadWrite> for IndirectIndexedY {
-        fn enqueue(cpu: &mut CPU, instruction: <ReadWrite as IOMode<CPU>>::Instruction) {
-            todo!()
-        }
-    }
-
-    impl<CPU: Cpu> AddressingMode<CPU, Write> for IndirectIndexedY {
-        fn enqueue(cpu: &mut CPU, instruction: <Write as IOMode<CPU>>::Instruction) {
-            todo!()
-        }
-    }
-
-    pub struct Implied;
-
-    impl<CPU: Cpu + AddressMode> AddressingMode<CPU, Read> for Implied {
-        fn enqueue(cpu: &mut CPU, instruction: <Read as IOMode<CPU>>::Instruction) {
-            cpu.queue_microcode(CPU::pc, BusDirection::Read(instruction));
-            cpu.queue_decode();
-        }
-    }
 }
