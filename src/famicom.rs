@@ -72,18 +72,6 @@ impl AddressMode for RP2A03 {
         self.registers.address_buffer
     }
 
-    fn address_indexedx(&mut self) -> Address {
-        todo!()
-    }
-
-    fn address_inc(&mut self) -> Address {
-        todo!()
-    }
-
-    fn buffer(&mut self, address: Address) -> Address {
-        todo!()
-    }
-
     fn pc(&mut self) -> Address {
         self.registers.pc
     }
@@ -92,10 +80,6 @@ impl AddressMode for RP2A03 {
         let address = self.pc();
         self.registers.pc.increment();
         address
-    }
-
-    fn pc_offset_wrapping(&mut self) -> Address {
-        todo!()
     }
 
     fn stack(&mut self) -> Address {
@@ -146,24 +130,28 @@ impl Decode for RP2A03 {
                 (_, 0x4, 0x0, _) => self.queue_rti(),
                 (_, 0x6, 0x0, _) => self.queue_rts(),
                 (_, 0x2, 0x4, _) => self.decode_addressing::<BIT, Read>(row, column),
+                (false, _, 0x4, _) => self.decode_addressing::<NOP, Read>(row, column),
                 (false, _, 0x8, _) => self.decode_stack(row),
                 (_, 0x8, 0x8, _) => self.decode_addressing::<DEY, Read>(row, column),
-                // (_, 0xA, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::tay),
+                (_, 0xA, 0x8, _) => self.decode_addressing::<TAY, Read>(row, column),
                 (_, 0xC, 0x8, _) => self.decode_addressing::<INY, Read>(row, column),
                 (_, 0xE, 0x8, _) => self.decode_addressing::<INX, Read>(row, column),
                 (_, 0x2, 0xC, _) => self.decode_addressing::<BIT, Read>(row, column),
                 (_, 0x4, 0xC, _) => self.queue_jmp(),
                 (_, 0x6, 0xC, _) => self.queue_indirect_jmp(),
+                (false, _, 0xC, _) => self.decode_addressing::<NOP, Read>(row, column),
                 (_, 0x0, 0x18, _) => self.decode_addressing::<CLC, Read>(row, column),
                 (_, 0x2, 0x18, _) => self.decode_addressing::<SEC, Read>(row, column),
                 (_, 0x6, 0x18, _) => self.decode_addressing::<SEI, Read>(row, column),
+                (_, 0x8, 0x18, _) => self.decode_addressing::<TYA, Read>(row, column),
                 (_, 0xA, 0x18, _) => self.decode_addressing::<CLV, Read>(row, column),
                 (_, 0xC, 0x18, _) => self.decode_addressing::<CLD, Read>(row, column),
                 (_, 0xE, 0x18, _) => self.decode_addressing::<SED, Read>(row, column),
 
-                (_, 0x8, 0x18, _) => self.decode_addressing::<TYA, Read>(row, column),
                 (_, 0x8, _, 0) => self.decode_addressing::<STY, Write>(row, column),
                 (_, 0xA, _, 0) => self.decode_addressing::<LDY, Read>(row, column),
+                (_, _, 0x14, _) => self.decode_addressing::<NOP, Read>(row, column),
+                (_, _, 0x1C, _) => self.decode_addressing::<NOP, Read>(row, column),
                 (_, 0xC, _, 0) => self.decode_addressing::<CPY, Read>(row, column),
                 (_, 0xE, _, 0) => self.decode_addressing::<CPX, Read>(row, column),
 
@@ -185,7 +173,7 @@ impl Decode for RP2A03 {
                 (_, 0x8, 0xA, _) => self.decode_addressing::<TXA, Read>(row, column),
                 (_, 0x8, 0x1A, _) => self.decode_addressing::<TXS, Read>(row, column),
                 (_, 0x8, _, 2) => self.decode_addressing::<STX, Write>(row, column),
-                // (_, 0xA, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::tax),
+                (_, 0xA, 0xA, _) => self.decode_addressing::<TAX, Read>(row, column),
                 (_, 0xA, 0x1A, _) => self.decode_addressing::<TSX, Read>(row, column),
                 (_, 0xA, _, 2) => self.decode_addressing::<LDX, Read>(row, column),
                 (_, 0xC, 0xA, _) => self.decode_addressing::<DEX, Read>(row, column),
@@ -194,6 +182,16 @@ impl Decode for RP2A03 {
                 (_, 0xE, _, 2) => self.decode_addressing::<INC, ReadWrite>(row, column),
 
                 // Illegal
+                (_, 0x0, _, 3) => self.decode_addressing::<SLO, ReadWrite>(row, column),
+                (_, 0x2, _, 3) => self.decode_addressing::<RLA, ReadWrite>(row, column),
+                (_, 0x4, _, 3) => self.decode_addressing::<SRE, ReadWrite>(row, column),
+                (_, 0x6, _, 3) => self.decode_addressing::<RRA, ReadWrite>(row, column),
+                (_, 0x8, _, 3) => self.decode_addressing::<SAX, Write>(row, column),
+                (_, 0xA, _, 3) => self.decode_addressing::<LAX, Read>(row, column),
+                (_, 0xC, _, 3) => self.decode_addressing::<DCP, ReadWrite>(row, column),
+                (_, 0xE, 0xB, _) => self.decode_addressing::<SBC, Read>(row, column),
+                (_, 0xE, _, 3) => self.decode_addressing::<ISC, ReadWrite>(row, column),
+
                 _ => unimplemented!("No decode for {:02X}", self.opcode),
             }
         }
@@ -224,14 +222,18 @@ impl Decode for RP2A03 {
             0x0C..=0x0F => self.addressing::<Absolute, INST, IO>(),
             // 0x10 | 0x12 => unimplemented!("*+d"),
             0x11 | 0x13 => self.addressing::<IndirectIndexedY, INST, IO>(),
-            0x14..=0x15 => self.addressing::<ZeroPageIndexed<true>, INST, IO>(),
-            0x16..=0x17 => match row {
+            0x14 | 0x15 => self.addressing::<ZeroPageIndexed<true>, INST, IO>(),
+            0x16 | 0x17 => match row {
                 0x8 | 0xA => self.addressing::<ZeroPageIndexed<false>, INST, IO>(),
                 _ => self.addressing::<ZeroPageIndexed<true>, INST, IO>(),
             },
             0x18 | 0x1A => self.addressing::<Implied, INST, IO>(),
             0x19 | 0x1B => self.addressing::<AbsoluteIndexed<false>, INST, IO>(),
-            // 0x1C..=0x1F => unimplemented!("a,x"),
+            0x1C | 0x1D => self.addressing::<AbsoluteIndexed<true>, INST, IO>(),
+            0x1E | 0x1F => match row {
+                0x8 | 0xA => self.addressing::<AbsoluteIndexed<false>, INST, IO>(),
+                _ => self.addressing::<AbsoluteIndexed<true>, INST, IO>(),
+            },
             _ => unreachable!("No addressing mode implemented for {:02X}", column),
         }
     }
@@ -260,7 +262,12 @@ impl Decode for RP2A03 {
 
                     if cpu.registers.pc.high() != pc.high() {
                         cpu.push_microcode(
-                            Self::pc_offset_wrapping,
+                            |cpu| {
+                                let mut address = cpu.registers.pc;
+                                address.offset(cpu.registers.operand as i8);
+                                address.set_high(cpu.registers.pc.high());
+                                address
+                            },
                             BusDirection::Read(|cpu| {
                                 cpu.registers.pc.offset(cpu.registers.operand as i8)
                             }),

@@ -1,8 +1,6 @@
 use addressing::*;
 use bitflags::bitflags;
-use instructions::{
-    Instruction, MicrocodeControl, ReadInstruction, ReadWriteInstruction, WriteInstruction,
-};
+use instructions::{Instruction, MicrocodeControl, ReadInstruction, WriteInstruction};
 
 use crate::{Address, Bus};
 
@@ -106,12 +104,8 @@ impl StatusFlags {
 
 pub trait AddressMode {
     fn address(&mut self) -> Address;
-    fn address_indexedx(&mut self) -> Address;
-    fn address_inc(&mut self) -> Address;
-    fn buffer(&mut self, address: Address) -> Address;
     fn pc(&mut self) -> Address;
     fn pc_inc(&mut self) -> Address;
-    fn pc_offset_wrapping(&mut self) -> Address;
     fn stack(&mut self) -> Address;
     fn stack_push(&mut self) -> Address;
     fn stack_pull(&mut self) -> Address;

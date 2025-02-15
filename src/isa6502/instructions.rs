@@ -2,7 +2,7 @@ use crate::{Address, BusDirection};
 
 use super::{
     addressing::{IOMode, Read, ReadWrite, Write},
-    AddressMode, Registers, StatusFlags,
+    Registers, StatusFlags,
 };
 
 pub trait Instruction<IO>
@@ -44,7 +44,7 @@ impl ReadInstruction for BIT {
         registers.p.remove(flags);
         registers
             .p
-            .insert(StatusFlags::from_bits_retain((flags.bits() & data)));
+            .insert(StatusFlags::from_bits_retain(flags.bits() & data));
         registers.p.set(StatusFlags::Z, result == 0);
     }
 }
@@ -83,6 +83,14 @@ pub struct DEY;
 impl ReadInstruction for DEY {
     fn execute(registers: &mut Registers, _: &u8) {
         registers.y = registers.y.wrapping_sub(1);
+        registers.p.set_value_flags(registers.y);
+    }
+}
+
+pub struct TAY;
+impl ReadInstruction for TAY {
+    fn execute(registers: &mut Registers, _: &u8) {
+        registers.y = registers.a;
         registers.p.set_value_flags(registers.y);
     }
 }
@@ -350,6 +358,14 @@ impl WriteInstruction for STX {
     }
 }
 
+pub struct TAX;
+impl ReadInstruction for TAX {
+    fn execute(registers: &mut Registers, _: &u8) {
+        registers.x = registers.a;
+        registers.p.set_value_flags(registers.x);
+    }
+}
+
 pub struct TSX;
 impl ReadInstruction for TSX {
     fn execute(registers: &mut Registers, _: &u8) {
@@ -395,6 +411,70 @@ impl ReadWriteInstruction for INC {
     }
 }
 
+// Illegal instructions
+pub struct SLO;
+impl ReadWriteInstruction for SLO {
+    fn execute(registers: &mut Registers, data: &mut u8) {
+        ASL::execute(registers, data);
+        ORA::execute(registers, data);
+    }
+}
+
+pub struct RLA;
+impl ReadWriteInstruction for RLA {
+    fn execute(registers: &mut Registers, data: &mut u8) {
+        ROL::execute(registers, data);
+        AND::execute(registers, data);
+    }
+}
+
+pub struct SRE;
+impl ReadWriteInstruction for SRE {
+    fn execute(registers: &mut Registers, data: &mut u8) {
+        LSR::execute(registers, data);
+        EOR::execute(registers, data);
+    }
+}
+
+pub struct RRA;
+impl ReadWriteInstruction for RRA {
+    fn execute(registers: &mut Registers, data: &mut u8) {
+        ROR::execute(registers, data);
+        ADC::execute(registers, data);
+    }
+}
+
+pub struct SAX;
+impl WriteInstruction for SAX {
+    fn execute(registers: &mut Registers, data: &mut u8) {
+        *data = registers.a & registers.x;
+    }
+}
+
+pub struct LAX;
+impl ReadInstruction for LAX {
+    fn execute(registers: &mut Registers, data: &u8) {
+        LDA::execute(registers, data);
+        TAX::execute(registers, data);
+    }
+}
+
+pub struct DCP;
+impl ReadWriteInstruction for DCP {
+    fn execute(registers: &mut Registers, data: &mut u8) {
+        DEC::execute(registers, data);
+        CMP::execute(registers, data);
+    }
+}
+
+pub struct ISC;
+impl ReadWriteInstruction for ISC {
+    fn execute(registers: &mut Registers, data: &mut u8) {
+        INC::execute(registers, data);
+        SBC::execute(registers, data);
+    }
+}
+
 // Pseudo-instructions
 pub struct PCL;
 impl ReadInstruction for PCL {
@@ -419,55 +499,6 @@ impl ReadInstruction for PCH {
 impl WriteInstruction for PCH {
     fn execute(registers: &mut Registers, data: &mut u8) {
         *data = registers.pc.high()
-    }
-}
-
-pub trait ReadInstructions {
-    fn bit(registers: &mut Registers, data: u8) {
-        let result = registers.a & data;
-        let flags = StatusFlags::N | StatusFlags::V;
-        registers.p.remove(flags);
-        registers
-            .p
-            .insert(StatusFlags::from_bits_retain((flags.bits() & data)));
-        registers.p.set(StatusFlags::Z, result == 0);
-    }
-
-    fn tay(registers: &mut Registers, _: u8) {
-        registers.y = registers.a;
-        registers.p.set_value_flags(registers.y);
-    }
-
-    fn sei(registers: &mut Registers, _: u8) {
-        registers.p.set(StatusFlags::I, true);
-    }
-
-    fn clv(registers: &mut Registers, _: u8) {
-        registers.p.set(StatusFlags::V, false);
-    }
-
-    fn cld(registers: &mut Registers, _: u8) {
-        registers.p.set(StatusFlags::D, false);
-    }
-
-    fn sed(registers: &mut Registers, _: u8) {
-        registers.p.set(StatusFlags::D, true);
-    }
-
-    fn tax(registers: &mut Registers, data: u8) {
-        registers.x = data;
-        registers.p.set_value_flags(registers.x);
-    }
-
-    fn tsx(registers: &mut Registers, _: u8) {
-        registers.x = registers.stack;
-        registers.p.set_value_flags(registers.x);
-    }
-
-    // fn nop(_: &mut Registers, _: u8) {}
-
-    fn php(registers: &mut Registers, _: u8) {
-        todo!()
     }
 }
 
