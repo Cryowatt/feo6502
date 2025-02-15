@@ -58,15 +58,19 @@ pub trait Microcode {
 
 pub trait Decode: MicrocodeControl + AddressMode {
     fn decode_opcode(&mut self);
-    fn decode_addressing<INST: Instruction<IO>, IO: IOMode>(&mut self, column: u8)
+    fn decode_addressing<INST: Instruction<IO>, IO: IOMode>(&mut self, row: u8, column: u8)
     where
         Immediate: AddressingMode<Self, INST, IO>,
         IndexedIndirectX: AddressingMode<Self, INST, IO>,
         ZeroPage: AddressingMode<Self, INST, IO>,
         Accumulator: AddressingMode<Self, INST, IO>,
-        IndirectIndexedY: AddressingMode<Self, INST, IO>,
-        Implied: AddressingMode<Self, INST, IO>,
         Absolute: AddressingMode<Self, INST, IO>,
+        IndirectIndexedY: AddressingMode<Self, INST, IO>,
+        ZeroPageIndexed<true>: AddressingMode<Self, INST, IO>,
+        ZeroPageIndexed<false>: AddressingMode<Self, INST, IO>,
+        Implied: AddressingMode<Self, INST, IO>,
+        AbsoluteIndexed<true>: AddressingMode<Self, INST, IO>,
+        AbsoluteIndexed<false>: AddressingMode<Self, INST, IO>,
         Self: Sized;
     fn decode_branch(&mut self, opcode: u8);
     fn decode_stack(&mut self, row: u8);

@@ -124,6 +124,7 @@ impl AddressMode for RP2A03 {
 
 impl Decode for RP2A03 {
     fn decode_opcode(&mut self) {
+        println!("DECODE");
         self.opcode = self.data_latch;
         // 0000_0000
         // bit 7: high/low
@@ -144,53 +145,53 @@ impl Decode for RP2A03 {
                 (_, 0x2, 0x0, _) => self.queue_jsr(),
                 (_, 0x4, 0x0, _) => self.queue_rti(),
                 (_, 0x6, 0x0, _) => self.queue_rts(),
-                (_, 0x2, 0x4, _) => self.decode_addressing::<BIT, Read>(column),
+                (_, 0x2, 0x4, _) => self.decode_addressing::<BIT, Read>(row, column),
                 (false, _, 0x8, _) => self.decode_stack(row),
-                (_, 0x8, 0x8, _) => self.decode_addressing::<DEY, Read>(column),
+                (_, 0x8, 0x8, _) => self.decode_addressing::<DEY, Read>(row, column),
                 // (_, 0xA, 0x8, _) => self.decode_addressing::<Read>(opcode, Self::tay),
-                (_, 0xC, 0x8, _) => self.decode_addressing::<INY, Read>(column),
-                (_, 0xE, 0x8, _) => self.decode_addressing::<INX, Read>(column),
-                (_, 0x2, 0xC, _) => self.decode_addressing::<BIT, Read>(column),
+                (_, 0xC, 0x8, _) => self.decode_addressing::<INY, Read>(row, column),
+                (_, 0xE, 0x8, _) => self.decode_addressing::<INX, Read>(row, column),
+                (_, 0x2, 0xC, _) => self.decode_addressing::<BIT, Read>(row, column),
                 (_, 0x4, 0xC, _) => self.queue_jmp(),
                 (_, 0x6, 0xC, _) => self.queue_indirect_jmp(),
-                (_, 0x0, 0x18, _) => self.decode_addressing::<CLC, Read>(column),
-                (_, 0x2, 0x18, _) => self.decode_addressing::<SEC, Read>(column),
-                (_, 0x6, 0x18, _) => self.decode_addressing::<SEI, Read>(column),
-                (_, 0xA, 0x18, _) => self.decode_addressing::<CLV, Read>(column),
-                (_, 0xC, 0x18, _) => self.decode_addressing::<CLD, Read>(column),
-                (_, 0xE, 0x18, _) => self.decode_addressing::<SED, Read>(column),
+                (_, 0x0, 0x18, _) => self.decode_addressing::<CLC, Read>(row, column),
+                (_, 0x2, 0x18, _) => self.decode_addressing::<SEC, Read>(row, column),
+                (_, 0x6, 0x18, _) => self.decode_addressing::<SEI, Read>(row, column),
+                (_, 0xA, 0x18, _) => self.decode_addressing::<CLV, Read>(row, column),
+                (_, 0xC, 0x18, _) => self.decode_addressing::<CLD, Read>(row, column),
+                (_, 0xE, 0x18, _) => self.decode_addressing::<SED, Read>(row, column),
 
-                (_, 0x8, 0x18, _) => self.decode_addressing::<TYA, Read>(column),
-                (_, 0x8, _, 0) => self.decode_addressing::<STY, Write>(column),
-                (_, 0xA, _, 0) => self.decode_addressing::<LDY, Read>(column),
-                (_, 0xC, _, 0) => self.decode_addressing::<CPY, Read>(column),
-                (_, 0xE, _, 0) => self.decode_addressing::<CPX, Read>(column),
+                (_, 0x8, 0x18, _) => self.decode_addressing::<TYA, Read>(row, column),
+                (_, 0x8, _, 0) => self.decode_addressing::<STY, Write>(row, column),
+                (_, 0xA, _, 0) => self.decode_addressing::<LDY, Read>(row, column),
+                (_, 0xC, _, 0) => self.decode_addressing::<CPY, Read>(row, column),
+                (_, 0xE, _, 0) => self.decode_addressing::<CPX, Read>(row, column),
 
                 // ALU
-                (_, 0x0, _, 1) => self.decode_addressing::<ORA, Read>(column),
-                (_, 0x2, _, 1) => self.decode_addressing::<AND, Read>(column),
-                (_, 0x4, _, 1) => self.decode_addressing::<EOR, Read>(column),
-                (_, 0x6, _, 1) => self.decode_addressing::<ADC<false>, Read>(column),
-                (_, 0x8, _, 1) => self.decode_addressing::<STA, Write>(column),
-                (_, 0xA, _, 1) => self.decode_addressing::<LDA, Read>(column),
-                (_, 0xC, _, 1) => self.decode_addressing::<CMP, Read>(column),
-                (_, 0xE, _, 1) => self.decode_addressing::<SBC, Read>(column),
+                (_, 0x0, _, 1) => self.decode_addressing::<ORA, Read>(row, column),
+                (_, 0x2, _, 1) => self.decode_addressing::<AND, Read>(row, column),
+                (_, 0x4, _, 1) => self.decode_addressing::<EOR, Read>(row, column),
+                (_, 0x6, _, 1) => self.decode_addressing::<ADC<false>, Read>(row, column),
+                (_, 0x8, _, 1) => self.decode_addressing::<STA, Write>(row, column),
+                (_, 0xA, _, 1) => self.decode_addressing::<LDA, Read>(row, column),
+                (_, 0xC, _, 1) => self.decode_addressing::<CMP, Read>(row, column),
+                (_, 0xE, _, 1) => self.decode_addressing::<SBC, Read>(row, column),
 
                 // RMW
-                (_, 0x0, _, 2) => self.decode_addressing::<ASL, ReadWrite>(column),
-                (_, 0x2, _, 2) => self.decode_addressing::<ROL, ReadWrite>(column),
-                (_, 0x4, _, 2) => self.decode_addressing::<LSR, ReadWrite>(column),
-                (_, 0x6, _, 2) => self.decode_addressing::<ROR, ReadWrite>(column),
-                (_, 0x8, 0xA, _) => self.decode_addressing::<TXA, Read>(column),
-                (_, 0x8, 0x1A, _) => self.decode_addressing::<TXS, Read>(column),
-                (_, 0x8, _, 2) => self.decode_addressing::<STX, Write>(column),
+                (_, 0x0, _, 2) => self.decode_addressing::<ASL, ReadWrite>(row, column),
+                (_, 0x2, _, 2) => self.decode_addressing::<ROL, ReadWrite>(row, column),
+                (_, 0x4, _, 2) => self.decode_addressing::<LSR, ReadWrite>(row, column),
+                (_, 0x6, _, 2) => self.decode_addressing::<ROR, ReadWrite>(row, column),
+                (_, 0x8, 0xA, _) => self.decode_addressing::<TXA, Read>(row, column),
+                (_, 0x8, 0x1A, _) => self.decode_addressing::<TXS, Read>(row, column),
+                (_, 0x8, _, 2) => self.decode_addressing::<STX, Write>(row, column),
                 // (_, 0xA, 0xA, _) => self.decode_addressing::<Read>(opcode, Self::tax),
-                (_, 0xA, 0x1A, _) => self.decode_addressing::<TSX, Read>(column),
-                (_, 0xA, _, 2) => self.decode_addressing::<LDX, Read>(column),
-                (_, 0xC, 0xA, _) => self.decode_addressing::<DEX, Read>(column),
-                (_, 0xC, _, 2) => self.decode_addressing::<DEC, ReadWrite>(column),
-                (_, 0xE, 0xA, _) => self.decode_addressing::<NOP, Read>(column),
-                (_, 0xE, _, 2) => self.decode_addressing::<INC, ReadWrite>(column),
+                (_, 0xA, 0x1A, _) => self.decode_addressing::<TSX, Read>(row, column),
+                (_, 0xA, _, 2) => self.decode_addressing::<LDX, Read>(row, column),
+                (_, 0xC, 0xA, _) => self.decode_addressing::<DEX, Read>(row, column),
+                (_, 0xC, _, 2) => self.decode_addressing::<DEC, ReadWrite>(row, column),
+                (_, 0xE, 0xA, _) => self.decode_addressing::<NOP, Read>(row, column),
+                (_, 0xE, _, 2) => self.decode_addressing::<INC, ReadWrite>(row, column),
 
                 // Illegal
                 _ => unimplemented!("No decode for {:02X}", self.opcode),
@@ -198,15 +199,19 @@ impl Decode for RP2A03 {
         }
     }
 
-    fn decode_addressing<INST: Instruction<IO>, IO: IOMode>(&mut self, column: u8)
+    fn decode_addressing<INST: Instruction<IO>, IO: IOMode>(&mut self, row: u8, column: u8)
     where
         Immediate: AddressingMode<Self, INST, IO>,
         IndexedIndirectX: AddressingMode<Self, INST, IO>,
         ZeroPage: AddressingMode<Self, INST, IO>,
         Accumulator: AddressingMode<Self, INST, IO>,
-        IndirectIndexedY: AddressingMode<Self, INST, IO>,
-        Implied: AddressingMode<Self, INST, IO>,
         Absolute: AddressingMode<Self, INST, IO>,
+        IndirectIndexedY: AddressingMode<Self, INST, IO>,
+        ZeroPageIndexed<true>: AddressingMode<Self, INST, IO>,
+        ZeroPageIndexed<false>: AddressingMode<Self, INST, IO>,
+        Implied: AddressingMode<Self, INST, IO>,
+        AbsoluteIndexed<true>: AddressingMode<Self, INST, IO>,
+        AbsoluteIndexed<false>: AddressingMode<Self, INST, IO>,
         //     ZeroPageIndexed
         //     AbsoluteIndexed
     {
@@ -219,9 +224,13 @@ impl Decode for RP2A03 {
             0x0C..=0x0F => self.addressing::<Absolute, INST, IO>(),
             // 0x10 | 0x12 => unimplemented!("*+d"),
             0x11 | 0x13 => self.addressing::<IndirectIndexedY, INST, IO>(),
-            // 0x14..=0x17 => unimplemented!("d,x/y"),
+            0x14..=0x15 => self.addressing::<ZeroPageIndexed<true>, INST, IO>(),
+            0x16..=0x17 => match row {
+                0x8 | 0xA => self.addressing::<ZeroPageIndexed<false>, INST, IO>(),
+                _ => self.addressing::<ZeroPageIndexed<true>, INST, IO>(),
+            },
             0x18 | 0x1A => self.addressing::<Implied, INST, IO>(),
-            // 0x19 | 0x1B => unimplemented!("a,y"),
+            0x19 | 0x1B => self.addressing::<AbsoluteIndexed<false>, INST, IO>(),
             // 0x1C..=0x1F => unimplemented!("a,x"),
             _ => unreachable!("No addressing mode implemented for {:02X}", column),
         }

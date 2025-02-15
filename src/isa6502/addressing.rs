@@ -316,6 +316,50 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: WriteInstruction>
     }
 }
 
+pub struct ZeroPageIndexed<const INDEX_X: bool>;
+
+impl<
+        CPU: MicrocodeControl + AddressMode + Microcode,
+        INST: ReadInstruction,
+        const INDEX_X: bool,
+    > AddressingMode<CPU, INST, Read> for ZeroPageIndexed<INDEX_X>
+{
+    fn enqueue(cpu: &mut CPU) {
+        cpu.queue_microcode(CPU::pc_inc, BusDirection::Read(CPU::pull_operand));
+        cpu.queue_microcode(CPU::zeropage, BusDirection::Read(CPU::nop));
+        cpu.queue_read::<INST>(|cpu| {
+            cpu.zeropage().index(if INDEX_X {
+                cpu.index_x()
+            } else {
+                cpu.index_y()
+            })
+        });
+        cpu.queue_decode();
+    }
+}
+
+impl<
+        CPU: MicrocodeControl + AddressMode + Microcode,
+        INST: ReadWriteInstruction,
+        const INDEX_X: bool,
+    > AddressingMode<CPU, INST, ReadWrite> for ZeroPageIndexed<INDEX_X>
+{
+    fn enqueue(cpu: &mut CPU) {
+        todo!()
+    }
+}
+
+impl<
+        CPU: MicrocodeControl + AddressMode + Microcode,
+        INST: WriteInstruction,
+        const INDEX_X: bool,
+    > AddressingMode<CPU, INST, Write> for ZeroPageIndexed<INDEX_X>
+{
+    fn enqueue(cpu: &mut CPU) {
+        todo!()
+    }
+}
+
 pub struct Implied;
 
 impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadInstruction>
@@ -343,5 +387,97 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: WriteInstruction>
         // cpu.queue_decode();
 
         todo!()
+    }
+}
+
+pub struct AbsoluteIndexed<const INDEX_X: bool>;
+
+impl<
+        CPU: MicrocodeControl + AddressMode + Microcode,
+        INST: ReadInstruction,
+        const INDEX_X: bool,
+    > AddressingMode<CPU, INST, Read> for AbsoluteIndexed<INDEX_X>
+{
+    fn enqueue(cpu: &mut CPU) {
+        cpu.queue_microcode(CPU::pc_inc, BusDirection::Read(CPU::buffer_low));
+        cpu.queue_microcode(
+            CPU::pc_inc,
+            BusDirection::Read(|cpu| {
+                cpu.buffer_high();
+                let address = cpu.address();
+                if INDEX_X {
+                    let indexed_address = address.index(cpu.index_x());
+                    let fixed_adddress = address + cpu.index_x();
+
+                    if indexed_address != fixed_adddress {
+                        cpu.push_microcode(
+                            |cpu| cpu.address().index(cpu.index_x()),
+                            BusDirection::Read(CPU::nop),
+                        );
+                    }
+                } else {
+                    let indexed_address = address.index(cpu.index_y());
+                    let fixed_adddress = address + cpu.index_y();
+
+                    if indexed_address != fixed_adddress {
+                        cpu.push_microcode(
+                            |cpu| cpu.address().index(cpu.index_y()),
+                            BusDirection::Read(CPU::nop),
+                        );
+                    }
+                }
+            }),
+        );
+        cpu.queue_read::<INST>(|cpu| {
+            cpu.address()
+                + if INDEX_X {
+                    cpu.index_x()
+                } else {
+                    cpu.index_y()
+                }
+        });
+        cpu.queue_decode();
+    }
+}
+
+impl<
+        CPU: MicrocodeControl + AddressMode + Microcode,
+        INST: ReadWriteInstruction,
+        const INDEX_X: bool,
+    > AddressingMode<CPU, INST, ReadWrite> for AbsoluteIndexed<INDEX_X>
+{
+    fn enqueue(cpu: &mut CPU) {
+        todo!()
+    }
+}
+
+impl<
+        CPU: MicrocodeControl + AddressMode + Microcode,
+        INST: WriteInstruction,
+        const INDEX_X: bool,
+    > AddressingMode<CPU, INST, Write> for AbsoluteIndexed<INDEX_X>
+{
+    fn enqueue(cpu: &mut CPU) {
+        cpu.queue_microcode(CPU::pc_inc, BusDirection::Read(CPU::buffer_low));
+        cpu.queue_microcode(CPU::pc_inc, BusDirection::Read(CPU::buffer_high));
+        cpu.queue_microcode(
+            |cpu| {
+                cpu.address().index(if INDEX_X {
+                    cpu.index_x()
+                } else {
+                    cpu.index_y()
+                })
+            },
+            BusDirection::Read(CPU::nop),
+        );
+        cpu.queue_write::<INST>(|cpu| {
+            cpu.address()
+                + if INDEX_X {
+                    cpu.index_x()
+                } else {
+                    cpu.index_y()
+                }
+        });
+        cpu.queue_decode();
     }
 }
