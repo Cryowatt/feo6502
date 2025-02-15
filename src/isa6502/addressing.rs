@@ -4,8 +4,7 @@ use crate::{Address, BusDirection};
 
 use super::{
     instructions::{
-        Instruction, MicrocodeControl, ReadInstruction, ReadInstructions, ReadWriteInstruction,
-        WriteInstruction,
+        Instruction, MicrocodeControl, ReadInstruction, ReadWriteInstruction, WriteInstruction,
     },
     AddressMode, Microcode, Registers,
 };
@@ -68,6 +67,18 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: WriteInstruction>
 }
 
 pub struct IndexedIndirectX;
+impl IndexedIndirectX {
+    fn zeropage_indexed_low<CPU: MicrocodeControl + AddressMode + Microcode>(
+        cpu: &mut CPU,
+    ) -> Address {
+        cpu.zeropage().index(cpu.index_x())
+    }
+    fn zeropage_indexed_high<CPU: MicrocodeControl + AddressMode + Microcode>(
+        cpu: &mut CPU,
+    ) -> Address {
+        cpu.zeropage().index(cpu.index_x().wrapping_add(1))
+    }
+}
 
 impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadInstruction>
     AddressingMode<CPU, INST, Read> for IndexedIndirectX
@@ -76,17 +87,11 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadInstruction>
         cpu.queue_microcode(CPU::pc_inc, BusDirection::Read(CPU::pull_operand));
         cpu.queue_microcode(CPU::zeropage, BusDirection::Read(CPU::nop));
         cpu.queue_microcode(
-            |cpu| {
-                let mut address = cpu.zeropage();
-                address.index(cpu.index_x())
-            },
+            Self::zeropage_indexed_low,
             BusDirection::Read(CPU::buffer_low),
         );
         cpu.queue_microcode(
-            |cpu| {
-                let mut address = cpu.zeropage();
-                address.index(cpu.index_x().wrapping_add(1))
-            },
+            Self::zeropage_indexed_high,
             BusDirection::Read(CPU::buffer_high),
         );
         cpu.queue_read::<INST>(CPU::address);
@@ -109,17 +114,11 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: WriteInstruction>
         cpu.queue_microcode(CPU::pc_inc, BusDirection::Read(CPU::pull_operand));
         cpu.queue_microcode(CPU::zeropage, BusDirection::Read(CPU::nop));
         cpu.queue_microcode(
-            |cpu| {
-                let mut address = cpu.zeropage();
-                address.index(cpu.index_x())
-            },
+            Self::zeropage_indexed_low,
             BusDirection::Read(CPU::buffer_low),
         );
         cpu.queue_microcode(
-            |cpu| {
-                let mut address = cpu.zeropage();
-                address.index(cpu.index_x().wrapping_add(1))
-            },
+            Self::zeropage_indexed_high,
             BusDirection::Read(CPU::buffer_high),
         );
         cpu.queue_write::<INST>(CPU::address);
@@ -263,6 +262,32 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: WriteInstruction>
 }
 
 pub struct IndirectIndexedY;
+impl IndirectIndexedY {
+    fn zeropage_high<CPU: MicrocodeControl + AddressMode + Microcode>(cpu: &mut CPU) -> Address {
+        cpu.zeropage().index(1)
+    }
+
+    fn address_indexed_y<CPU: MicrocodeControl + AddressMode + Microcode>(
+        cpu: &mut CPU,
+    ) -> Address {
+        cpu.address() + cpu.index_y()
+    }
+
+    fn buffer_high_maybe_pagefix<CPU: MicrocodeControl + AddressMode + Microcode>(cpu: &mut CPU) {
+        cpu.buffer_high();
+        let address = cpu.address();
+        let indexed_address = address.index(cpu.index_y());
+        let fixed_adddress = address + cpu.index_y();
+
+        // Maybe inject invalid address
+        if indexed_address != fixed_adddress {
+            cpu.push_microcode(
+                |cpu| cpu.address().index(cpu.index_y()),
+                BusDirection::Read(CPU::nop),
+            );
+        }
+    }
+}
 
 impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadInstruction>
     AddressingMode<CPU, INST, Read> for IndirectIndexedY
@@ -271,23 +296,10 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadInstruction>
         cpu.queue_microcode(CPU::pc_inc, BusDirection::Read(CPU::pull_operand));
         cpu.queue_microcode(CPU::zeropage, BusDirection::Read(CPU::buffer_low));
         cpu.queue_microcode(
-            |cpu| cpu.zeropage().index(1),
-            BusDirection::Read(|cpu| {
-                cpu.buffer_high();
-                let address = cpu.address();
-                let indexed_address = address.index(cpu.index_y());
-                let fixed_adddress = address + cpu.index_y();
-
-                // Maybe inject invalid address
-                if indexed_address != fixed_adddress {
-                    cpu.push_microcode(
-                        |cpu| cpu.address().index(cpu.index_y()),
-                        BusDirection::Read(CPU::nop),
-                    );
-                }
-            }),
+            Self::zeropage_high,
+            BusDirection::Read(Self::buffer_high_maybe_pagefix),
         );
-        cpu.queue_read::<INST>(|cpu| cpu.address() + cpu.index_y());
+        cpu.queue_read::<INST>(Self::address_indexed_y);
         cpu.queue_decode();
     }
 }
@@ -306,17 +318,24 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: WriteInstruction>
     fn enqueue(cpu: &mut CPU) {
         cpu.queue_microcode(CPU::pc_inc, BusDirection::Read(CPU::pull_operand));
         cpu.queue_microcode(CPU::zeropage, BusDirection::Read(CPU::buffer_low));
-        cpu.queue_microcode(
-            |cpu| cpu.address().index(cpu.index_y()),
-            BusDirection::Read(CPU::nop),
-        );
-        cpu.queue_microcode(|cpu| cpu.zeropage().index(1), BusDirection::Read(CPU::nop));
-        cpu.queue_write::<INST>(|cpu| cpu.address() + cpu.index_y());
+        cpu.queue_microcode(Self::zeropage_high, BusDirection::Read(CPU::nop));
+        cpu.queue_microcode(Self::address_indexed_y, BusDirection::Read(CPU::nop));
+        cpu.queue_write::<INST>(Self::address_indexed_y);
         cpu.queue_decode();
     }
 }
 
 pub struct ZeroPageIndexed<const INDEX_X: bool>;
+
+impl<const INDEX_X: bool> ZeroPageIndexed<INDEX_X> {
+    fn zeropage_indexed<CPU: MicrocodeControl + AddressMode + Microcode>(cpu: &mut CPU) -> Address {
+        cpu.zeropage().index(if INDEX_X {
+            cpu.index_x()
+        } else {
+            cpu.index_y()
+        })
+    }
+}
 
 impl<
         CPU: MicrocodeControl + AddressMode + Microcode,
@@ -327,13 +346,7 @@ impl<
     fn enqueue(cpu: &mut CPU) {
         cpu.queue_microcode(CPU::pc_inc, BusDirection::Read(CPU::pull_operand));
         cpu.queue_microcode(CPU::zeropage, BusDirection::Read(CPU::nop));
-        cpu.queue_read::<INST>(|cpu| {
-            cpu.zeropage().index(if INDEX_X {
-                cpu.index_x()
-            } else {
-                cpu.index_y()
-            })
-        });
+        cpu.queue_read::<INST>(Self::zeropage_indexed);
         cpu.queue_decode();
     }
 }
@@ -345,7 +358,12 @@ impl<
     > AddressingMode<CPU, INST, ReadWrite> for ZeroPageIndexed<INDEX_X>
 {
     fn enqueue(cpu: &mut CPU) {
-        todo!()
+        cpu.queue_microcode(CPU::pc_inc, BusDirection::Read(CPU::pull_operand));
+        cpu.queue_microcode(CPU::zeropage, BusDirection::Read(CPU::nop));
+        cpu.queue_microcode(Self::zeropage_indexed, BusDirection::Read(CPU::nop));
+        cpu.queue_microcode(Self::zeropage_indexed, BusDirection::Write(CPU::nop));
+        cpu.queue_read_write::<INST>(Self::zeropage_indexed);
+        cpu.queue_decode();
     }
 }
 
@@ -356,7 +374,10 @@ impl<
     > AddressingMode<CPU, INST, Write> for ZeroPageIndexed<INDEX_X>
 {
     fn enqueue(cpu: &mut CPU) {
-        todo!()
+        cpu.queue_microcode(CPU::pc_inc, BusDirection::Read(CPU::pull_operand));
+        cpu.queue_microcode(CPU::zeropage, BusDirection::Read(CPU::nop));
+        cpu.queue_write::<INST>(Self::zeropage_indexed);
+        cpu.queue_decode();
     }
 }
 
