@@ -207,7 +207,7 @@ impl ReadInstruction for CPX {
 pub struct ORA;
 impl ReadInstruction for ORA {
     fn execute(registers: &mut Registers, data: &u8) {
-        registers.a = registers.a | *data;
+        registers.a |= *data;
         registers.p.set_value_flags(registers.a);
     }
 }
@@ -215,7 +215,7 @@ impl ReadInstruction for ORA {
 pub struct AND;
 impl ReadInstruction for AND {
     fn execute(registers: &mut Registers, data: &u8) {
-        registers.a = registers.a & *data;
+        registers.a &= *data;
         registers.p.set_value_flags(registers.a);
     }
 }
@@ -223,7 +223,7 @@ impl ReadInstruction for AND {
 pub struct EOR;
 impl ReadInstruction for EOR {
     fn execute(registers: &mut Registers, data: &u8) {
-        registers.a = registers.a ^ data;
+        registers.a ^= data;
         registers.p.set_value_flags(registers.a);
     }
 }

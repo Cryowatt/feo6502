@@ -1,6 +1,23 @@
-use std::{fmt, num::ParseIntError, ops, str::FromStr};
+#![feature(test)]
+
+use core::{fmt, num, ops, str};
+
+use std::{
+    // fmt,
+    // num::ParseIntError,
+    // ops::{self},
+    // str::FromStr,
+    sync::{
+        atomic::{AtomicBool, AtomicU8, Ordering},
+        mpsc::{self, Receiver, SendError, SyncSender},
+        Arc,
+    },
+    thread::{self},
+    time::Instant,
+};
 
 use devices::{BusDevice, RamBank};
+use famicom::NesLogger;
 use isa6502::*;
 
 pub mod devices;
@@ -12,7 +29,7 @@ pub struct Address(u16);
 
 impl Address {
     pub fn new(high: u8, low: u8) -> Address {
-        Address((high as u16) << 8 | low as u16)
+        Address(((high as u16) << 8) | (low as u16))
     }
 
     fn increment(&mut self) {
@@ -32,7 +49,7 @@ impl Address {
     }
 
     fn set_high(&mut self, high: u8) {
-        self.0 = (self.0 & 0xff) | (high as u16) << 8;
+        self.0 = (self.0 & 0xff) | ((high as u16) << 8);
     }
 
     fn low(&self) -> u8 {
@@ -100,8 +117,8 @@ impl ops::IndexMut<Address> for [u8] {
     }
 }
 
-impl FromStr for Address {
-    type Err = ParseIntError;
+impl str::FromStr for Address {
+    type Err = num::ParseIntError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(Address(s.parse()?))
@@ -139,7 +156,6 @@ pub trait Bus {
 
 pub struct System<CPU: Cpu, Mapper: BusDevice> {
     cpu: CPU,
-    cpu_divisor: u8,
     bus: SystemBus<Mapper>,
 }
 
@@ -157,11 +173,10 @@ impl<Mapper: BusDevice> SystemBus<Mapper> {
     }
 }
 
-impl<CPU: Cpu, Mapper: BusDevice> System<CPU, Mapper> {
-    pub fn new(cpu: CPU, cpu_divisor: u8, mapper: Mapper) -> Self {
+impl<CPU: Cpu + Send + 'static, Mapper: BusDevice + Send + 'static> System<CPU, Mapper> {
+    pub fn new(cpu: CPU, mapper: Mapper) -> Self {
         Self {
             cpu,
-            cpu_divisor,
             bus: SystemBus::new(mapper),
         }
     }
@@ -170,27 +185,98 @@ impl<CPU: Cpu, Mapper: BusDevice> System<CPU, Mapper> {
         let cpu = &mut self.cpu;
         cpu.cycle(&mut self.bus);
     }
+
+    pub fn run(mut self, clock_signal: Receiver<u64>) {
+        thread::spawn(move || {
+            while let Ok(cycles) = clock_signal.recv() {
+                for _ in 0..cycles {
+                    self.clock_pulse();
+                }
+            }
+        });
+    }
 }
 
 impl<Mapper: BusDevice> Bus for SystemBus<Mapper> {
     fn read(&self, address: Address) -> u8 {
-        let data = self
-            .ram
+        self.ram
             .read(address)
-            .unwrap_or_else(|| self.mapper.read(address).unwrap());
-        eprintln!("{:?} => {:02X}", address, data);
-        data
+            .unwrap_or_else(|| self.mapper.read(address).unwrap())
     }
 
     fn write(&mut self, address: Address, data: u8) {
-        eprintln!("{:?} <= {:02X}", address, data);
         self.ram.write(address, data);
         self.mapper.write(address, data);
     }
 }
 
+pub struct Clock<const CLOCK_RATE: u64> {
+    oscillator: SyncSender<u64>,
+}
+
+impl<const CLOCK_RATE: u64> Clock<CLOCK_RATE> {
+    pub fn new() -> (Self, Receiver<u64>) {
+        let one_frame = 1789733 / 60;
+        let (oscillator, signal) = mpsc::sync_channel::<u64>(1);
+        (Self { oscillator }, signal)
+    }
+
+    pub fn pulse(&mut self) -> Result<(), SendError<u64>> {
+        self.oscillator.send(1)
+    }
+
+    pub fn run(&mut self) -> Arc<ClockControls> {
+        let clock_control = Arc::new(ClockControls {
+            multiplier: AtomicU8::new(0),
+            divisor: AtomicU8::new(0),
+            running: AtomicBool::new(true),
+            cancel: AtomicBool::new(false),
+        });
+
+        let oscillator = self.oscillator.clone();
+        let internal_control = clock_control.clone();
+
+        thread::spawn(move || {
+            let start = Instant::now();
+            let mut cycles: u64 = 0;
+            while !internal_control.cancel.load(Ordering::Relaxed) {
+                let catchup_cycles =
+                    ((Instant::now() - start).as_secs_f64() * CLOCK_RATE as f64) as u64 - cycles;
+                if (catchup_cycles > 0) {
+                    oscillator.send(catchup_cycles).unwrap();
+                    cycles += catchup_cycles;
+                }
+
+                // println!("{}", catchup_cycles);
+                // for _ in 0..catchup_cycles {
+                //     oscillator.send(()).unwrap();
+                //     cycles += 1;
+                // }
+                thread::yield_now();
+            }
+        });
+
+        clock_control
+    }
+}
+
+pub struct ClockControls {
+    multiplier: AtomicU8,
+    divisor: AtomicU8,
+    running: AtomicBool,
+    cancel: AtomicBool,
+}
+
+impl Drop for ClockControls {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    extern crate test;
+
     use std::{
         fs::File,
         io::{self, BufRead},
@@ -206,7 +292,7 @@ mod tests {
 
     use super::*;
 
-    impl FromStr for NesTestLogEntry {
+    impl str::FromStr for NesTestLogEntry {
         type Err = NesTestLogEntryParseError;
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -246,29 +332,22 @@ mod tests {
 
     #[derive(Debug)]
     pub enum NesTestLogEntryParseError {
-        Address(ParseIntError),
-        Opcode(ParseIntError),
-        A(ParseIntError),
-        X(ParseIntError),
-        Y(ParseIntError),
-        P(ParseIntError),
-        Stack(ParseIntError),
+        Address(num::ParseIntError),
+        Opcode(num::ParseIntError),
+        A(num::ParseIntError),
+        X(num::ParseIntError),
+        Y(num::ParseIntError),
+        P(num::ParseIntError),
+        Stack(num::ParseIntError),
         Instruction(ParseError),
-        Cycles(ParseIntError),
+        Cycles(num::ParseIntError),
     }
 
     #[test]
     fn decode_validation() {
-        let mut nestest = RomImage::load(File::open("nestest.nes").unwrap()).unwrap();
-        // Change reset vector to force automation mode for the rom
-        nestest.prg_rom[0x3FFD] = 0xC0;
-        nestest.prg_rom[0x3FFC] = 0x00;
+        let nestest = load_nestest();
 
         let mut system = ntsc_system(mapper_for(nestest));
-        // let fk = (system.mapper.read(Address(0xfffc)).unwrap() as u16)
-        //     | (system.mapper.read(Address(0xfffd)).unwrap() as u16) << 8;
-        // println!("Fk {:04X}", fk);
-        // system.clock_pulse();
 
         let f = File::open("nestest.log").unwrap();
         let reader = io::BufReader::new(f);
@@ -314,5 +393,27 @@ mod tests {
                 log
             );
         }
+    }
+
+    fn load_nestest() -> RomImage {
+        let mut nestest = RomImage::load(File::open("nestest.nes").unwrap()).unwrap();
+        // Change reset vector to force automation mode for the rom
+        nestest.prg_rom[0x3FFD] = 0xC0;
+        nestest.prg_rom[0x3FFC] = 0x00;
+        nestest
+    }
+
+    #[bench]
+    fn performance_benchmark(b: &mut test::Bencher) {
+        let nestest = load_nestest();
+
+        const CYCLE_TARGET: u32 = 26554;
+        b.bytes = CYCLE_TARGET as u64;
+        b.iter(|| {
+            let mut system = ntsc_system(mapper_for(nestest.clone()));
+            for _ in 0..CYCLE_TARGET {
+                system.clock_pulse();
+            }
+        });
     }
 }

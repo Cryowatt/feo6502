@@ -40,14 +40,12 @@ pub enum BusDirection<CPU> {
     Read(fn(&mut CPU)),
 }
 
-pub trait Microcode {
-    // Add everything timing-related in here, queue commands, pc_inc/zeropage/etc. address shit, everything except the actual instructions
+pub trait MicrocodeInstructions {
     fn pull_operand(&mut self);
     fn index_x(&self) -> u8;
     fn index_y(&self) -> u8;
     fn buffer_low(&mut self);
     fn buffer_high(&mut self);
-    fn address_operand(&mut self);
     fn read_instruction<INST: ReadInstruction>(&mut self);
     fn write_instruction<INST: WriteInstruction>(&mut self);
     fn borrow_accumulator(&mut self) -> &mut u8;
@@ -56,11 +54,16 @@ pub trait Microcode {
 
 pub trait Decode: MicrocodeControl + AddressMode {
     fn decode_opcode(&mut self);
-    fn decode_addressing<INST: Instruction<IO>, IO: IOMode>(&mut self, row: u8, column: u8)
+    fn decode_addressing<INST: Instruction<IO>, IO: IOMode>(
+        &mut self,
+        row: u8,
+        column: u8,
+    ) -> fn(&mut Self)
     where
         Immediate: AddressingMode<Self, INST, IO>,
         IndexedIndirectX: AddressingMode<Self, INST, IO>,
         ZeroPage: AddressingMode<Self, INST, IO>,
+        Stack: AddressingMode<Self, INST, IO>,
         Accumulator: AddressingMode<Self, INST, IO>,
         Absolute: AddressingMode<Self, INST, IO>,
         IndirectIndexedY: AddressingMode<Self, INST, IO>,
@@ -70,13 +73,13 @@ pub trait Decode: MicrocodeControl + AddressMode {
         AbsoluteIndexed<true>: AddressingMode<Self, INST, IO>,
         AbsoluteIndexed<false>: AddressingMode<Self, INST, IO>,
         Self: Sized;
-    fn decode_branch(&mut self, opcode: u8);
-    fn decode_stack(&mut self, row: u8);
-    fn queue_jmp(&mut self);
-    fn queue_indirect_jmp(&mut self);
+    fn queue_branch(&mut self);
+    fn queue_brk(&mut self);
     fn queue_jsr(&mut self);
     fn queue_rti(&mut self);
     fn queue_rts(&mut self);
+    fn queue_jmp(&mut self);
+    fn queue_indirect_jmp(&mut self);
 }
 
 bitflags! {
@@ -117,5 +120,6 @@ pub trait Cpu
 where
     Self: Sized,
 {
+    const CLOCK_DIVISOR: u64;
     fn cycle(&mut self, bus: &mut impl Bus);
 }

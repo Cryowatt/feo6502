@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 use crate::{Address, BusDirection};
 
@@ -6,7 +6,7 @@ use super::{
     instructions::{
         Instruction, MicrocodeControl, ReadInstruction, ReadWriteInstruction, WriteInstruction,
     },
-    AddressMode, Microcode, Registers,
+    AddressMode, MicrocodeInstructions, Registers,
 };
 
 pub struct Read;
@@ -35,7 +35,7 @@ pub struct Addressing;
 
 pub struct Immediate;
 
-impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadInstruction>
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: ReadInstruction>
     AddressingMode<CPU, INST, Read> for Immediate
 {
     fn enqueue(cpu: &mut CPU) {
@@ -44,7 +44,7 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadInstruction>
     }
 }
 
-impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadWriteInstruction>
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: ReadWriteInstruction>
     AddressingMode<CPU, INST, ReadWrite> for Immediate
 {
     fn enqueue(cpu: &mut CPU) {
@@ -53,7 +53,7 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadWriteInstruction
     }
 }
 
-impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: WriteInstruction>
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: WriteInstruction>
     AddressingMode<CPU, INST, Write> for Immediate
 {
     fn enqueue(cpu: &mut CPU) {
@@ -64,20 +64,20 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: WriteInstruction>
 
 pub struct IndexedIndirectX;
 impl IndexedIndirectX {
-    fn zeropage_indexed_low<CPU: MicrocodeControl + AddressMode + Microcode>(
+    fn zeropage_indexed_low<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions>(
         cpu: &mut CPU,
     ) -> Address {
         cpu.zeropage().index(cpu.index_x())
     }
 
-    fn zeropage_indexed_high<CPU: MicrocodeControl + AddressMode + Microcode>(
+    fn zeropage_indexed_high<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions>(
         cpu: &mut CPU,
     ) -> Address {
         cpu.zeropage().index(cpu.index_x().wrapping_add(1))
     }
 }
 
-impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadInstruction>
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: ReadInstruction>
     AddressingMode<CPU, INST, Read> for IndexedIndirectX
 {
     fn enqueue(cpu: &mut CPU) {
@@ -96,7 +96,7 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadInstruction>
     }
 }
 
-impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadWriteInstruction>
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: ReadWriteInstruction>
     AddressingMode<CPU, INST, ReadWrite> for IndexedIndirectX
 {
     fn enqueue(cpu: &mut CPU) {
@@ -117,7 +117,7 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadWriteInstruction
     }
 }
 
-impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: WriteInstruction>
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: WriteInstruction>
     AddressingMode<CPU, INST, Write> for IndexedIndirectX
 {
     fn enqueue(cpu: &mut CPU) {
@@ -138,7 +138,7 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: WriteInstruction>
 
 pub struct ZeroPage;
 
-impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadInstruction>
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: ReadInstruction>
     AddressingMode<CPU, INST, Read> for ZeroPage
 {
     fn enqueue(cpu: &mut CPU) {
@@ -148,7 +148,7 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadInstruction>
     }
 }
 
-impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadWriteInstruction>
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: ReadWriteInstruction>
     AddressingMode<CPU, INST, ReadWrite> for ZeroPage
 {
     fn enqueue(cpu: &mut CPU) {
@@ -160,7 +160,7 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadWriteInstruction
     }
 }
 
-impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: WriteInstruction>
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: WriteInstruction>
     AddressingMode<CPU, INST, Write> for ZeroPage
 {
     fn enqueue(cpu: &mut CPU) {
@@ -170,9 +170,40 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: WriteInstruction>
     }
 }
 
+pub struct Stack;
+
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: ReadInstruction>
+    AddressingMode<CPU, INST, Read> for Stack
+{
+    fn enqueue(cpu: &mut CPU) {
+        cpu.queue_microcode(CPU::pc, BusDirection::Read(CPU::nop));
+        cpu.queue_microcode(CPU::stack, BusDirection::Read(CPU::nop));
+        cpu.queue_read::<INST>(CPU::stack_pull);
+        cpu.queue_decode();
+    }
+}
+
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: ReadWriteInstruction>
+    AddressingMode<CPU, INST, ReadWrite> for Stack
+{
+    fn enqueue(cpu: &mut CPU) {
+        todo!()
+    }
+}
+
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: WriteInstruction>
+    AddressingMode<CPU, INST, Write> for Stack
+{
+    fn enqueue(cpu: &mut CPU) {
+        cpu.queue_microcode(CPU::pc, BusDirection::Read(CPU::nop));
+        cpu.queue_write::<INST>(CPU::stack_push);
+        cpu.queue_decode();
+    }
+}
+
 pub struct Accumulator;
 
-impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadInstruction>
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: ReadInstruction>
     AddressingMode<CPU, INST, Read> for Accumulator
 {
     fn enqueue(cpu: &mut CPU) {
@@ -192,7 +223,7 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadInstruction>
     }
 }
 
-impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadWriteInstruction>
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: ReadWriteInstruction>
     AddressingMode<CPU, INST, ReadWrite> for Accumulator
 {
     fn enqueue(cpu: &mut CPU) {
@@ -213,7 +244,7 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadWriteInstruction
     }
 }
 
-impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: WriteInstruction>
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: WriteInstruction>
     AddressingMode<CPU, INST, Write> for Accumulator
 {
     fn enqueue(cpu: &mut CPU) {
@@ -236,7 +267,7 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: WriteInstruction>
 
 pub struct Absolute;
 
-impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadInstruction>
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: ReadInstruction>
     AddressingMode<CPU, INST, Read> for Absolute
 {
     fn enqueue(cpu: &mut CPU) {
@@ -247,7 +278,7 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadInstruction>
     }
 }
 
-impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadWriteInstruction>
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: ReadWriteInstruction>
     AddressingMode<CPU, INST, ReadWrite> for Absolute
 {
     fn enqueue(cpu: &mut CPU) {
@@ -260,7 +291,7 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadWriteInstruction
     }
 }
 
-impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: WriteInstruction>
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: WriteInstruction>
     AddressingMode<CPU, INST, Write> for Absolute
 {
     fn enqueue(cpu: &mut CPU) {
@@ -273,23 +304,27 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: WriteInstruction>
 
 pub struct IndirectIndexedY;
 impl IndirectIndexedY {
-    fn zeropage_high<CPU: MicrocodeControl + AddressMode + Microcode>(cpu: &mut CPU) -> Address {
+    fn zeropage_high<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions>(
+        cpu: &mut CPU,
+    ) -> Address {
         cpu.zeropage().index(1)
     }
 
-    fn address_indexed_y_no_carry<CPU: MicrocodeControl + AddressMode + Microcode>(
+    fn address_indexed_y_no_carry<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions>(
         cpu: &mut CPU,
     ) -> Address {
         cpu.address().index(cpu.index_y())
     }
 
-    fn address_indexed_y<CPU: MicrocodeControl + AddressMode + Microcode>(
+    fn address_indexed_y<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions>(
         cpu: &mut CPU,
     ) -> Address {
         cpu.address() + cpu.index_y()
     }
 
-    fn buffer_high_maybe_pagefix<CPU: MicrocodeControl + AddressMode + Microcode>(cpu: &mut CPU) {
+    fn buffer_high_maybe_pagefix<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions>(
+        cpu: &mut CPU,
+    ) {
         cpu.buffer_high();
         let address = cpu.address();
         let indexed_address = address.index(cpu.index_y());
@@ -305,7 +340,7 @@ impl IndirectIndexedY {
     }
 }
 
-impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadInstruction>
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: ReadInstruction>
     AddressingMode<CPU, INST, Read> for IndirectIndexedY
 {
     fn enqueue(cpu: &mut CPU) {
@@ -320,7 +355,7 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadInstruction>
     }
 }
 
-impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadWriteInstruction>
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: ReadWriteInstruction>
     AddressingMode<CPU, INST, ReadWrite> for IndirectIndexedY
 {
     fn enqueue(cpu: &mut CPU) {
@@ -338,7 +373,7 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadWriteInstruction
     }
 }
 
-impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: WriteInstruction>
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: WriteInstruction>
     AddressingMode<CPU, INST, Write> for IndirectIndexedY
 {
     fn enqueue(cpu: &mut CPU) {
@@ -357,7 +392,9 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: WriteInstruction>
 pub struct ZeroPageIndexed<const INDEX_X: bool>;
 
 impl<const INDEX_X: bool> ZeroPageIndexed<INDEX_X> {
-    fn zeropage_indexed<CPU: MicrocodeControl + AddressMode + Microcode>(cpu: &mut CPU) -> Address {
+    fn zeropage_indexed<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions>(
+        cpu: &mut CPU,
+    ) -> Address {
         cpu.zeropage().index(if INDEX_X {
             cpu.index_x()
         } else {
@@ -367,7 +404,7 @@ impl<const INDEX_X: bool> ZeroPageIndexed<INDEX_X> {
 }
 
 impl<
-        CPU: MicrocodeControl + AddressMode + Microcode,
+        CPU: MicrocodeControl + AddressMode + MicrocodeInstructions,
         INST: ReadInstruction,
         const INDEX_X: bool,
     > AddressingMode<CPU, INST, Read> for ZeroPageIndexed<INDEX_X>
@@ -381,7 +418,7 @@ impl<
 }
 
 impl<
-        CPU: MicrocodeControl + AddressMode + Microcode,
+        CPU: MicrocodeControl + AddressMode + MicrocodeInstructions,
         INST: ReadWriteInstruction,
         const INDEX_X: bool,
     > AddressingMode<CPU, INST, ReadWrite> for ZeroPageIndexed<INDEX_X>
@@ -397,7 +434,7 @@ impl<
 }
 
 impl<
-        CPU: MicrocodeControl + AddressMode + Microcode,
+        CPU: MicrocodeControl + AddressMode + MicrocodeInstructions,
         INST: WriteInstruction,
         const INDEX_X: bool,
     > AddressingMode<CPU, INST, Write> for ZeroPageIndexed<INDEX_X>
@@ -412,7 +449,7 @@ impl<
 
 pub struct Implied;
 
-impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadInstruction>
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: ReadInstruction>
     AddressingMode<CPU, INST, Read> for Implied
 {
     fn enqueue(cpu: &mut CPU) {
@@ -422,7 +459,7 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadInstruction>
 }
 
 // Acts as a NOP
-impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadWriteInstruction>
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: ReadWriteInstruction>
     AddressingMode<CPU, INST, ReadWrite> for Implied
 {
     fn enqueue(cpu: &mut CPU) {
@@ -432,7 +469,7 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: ReadWriteInstruction
 }
 
 // Acts as a NOP
-impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: WriteInstruction>
+impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: WriteInstruction>
     AddressingMode<CPU, INST, Write> for Implied
 {
     fn enqueue(cpu: &mut CPU) {
@@ -443,7 +480,9 @@ impl<CPU: MicrocodeControl + AddressMode + Microcode, INST: WriteInstruction>
 
 pub struct AbsoluteIndexed<const INDEX_X: bool>;
 impl<const INDEX_X: bool> AbsoluteIndexed<INDEX_X> {
-    fn address_indexed<CPU: MicrocodeControl + AddressMode + Microcode>(cpu: &mut CPU) -> Address {
+    fn address_indexed<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions>(
+        cpu: &mut CPU,
+    ) -> Address {
         cpu.address().index(if INDEX_X {
             cpu.index_x()
         } else {
@@ -451,7 +490,7 @@ impl<const INDEX_X: bool> AbsoluteIndexed<INDEX_X> {
         })
     }
 
-    fn address_indexed_corrected<CPU: MicrocodeControl + AddressMode + Microcode>(
+    fn address_indexed_corrected<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions>(
         cpu: &mut CPU,
     ) -> Address {
         cpu.address()
@@ -464,7 +503,7 @@ impl<const INDEX_X: bool> AbsoluteIndexed<INDEX_X> {
 }
 
 impl<
-        CPU: MicrocodeControl + AddressMode + Microcode,
+        CPU: MicrocodeControl + AddressMode + MicrocodeInstructions,
         INST: ReadInstruction,
         const INDEX_X: bool,
     > AddressingMode<CPU, INST, Read> for AbsoluteIndexed<INDEX_X>
@@ -505,7 +544,7 @@ impl<
 }
 
 impl<
-        CPU: MicrocodeControl + AddressMode + Microcode,
+        CPU: MicrocodeControl + AddressMode + MicrocodeInstructions,
         INST: ReadWriteInstruction,
         const INDEX_X: bool,
     > AddressingMode<CPU, INST, ReadWrite> for AbsoluteIndexed<INDEX_X>
@@ -528,7 +567,7 @@ impl<
 }
 
 impl<
-        CPU: MicrocodeControl + AddressMode + Microcode,
+        CPU: MicrocodeControl + AddressMode + MicrocodeInstructions,
         INST: WriteInstruction,
         const INDEX_X: bool,
     > AddressingMode<CPU, INST, Write> for AbsoluteIndexed<INDEX_X>

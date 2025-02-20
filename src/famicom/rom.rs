@@ -23,7 +23,7 @@ macro_rules! from_bits {
 }
 
 #[repr(u8)]
-#[derive(FromRepr)]
+#[derive(FromRepr, Clone, Copy)]
 pub enum NametableLayout {
     Vertical = 0,
     Horizontal = 1,
@@ -78,6 +78,7 @@ struct Flags7 {
     mapper_mid_nibble: u8,
 }
 
+#[derive(Clone)]
 pub struct RomImage {
     pub prg_rom: Vec<u8>,
     pub chr_rom: Vec<u8>,
@@ -138,15 +139,13 @@ impl RomImage {
             unimplemented!();
         }
 
-        let mut prg_rom = Vec::with_capacity(prg_rom_size);
-        prg_rom.resize(prg_rom_size, 0);
+        let mut prg_rom = vec![0; prg_rom_size];
         reader.read_exact(prg_rom.as_mut_slice())?;
-        let mut chr_rom = Vec::with_capacity(chr_rom_size);
-        chr_rom.resize(chr_rom_size, 0);
+        let mut chr_rom = vec![0; chr_rom_size];
         reader.read_exact(chr_rom.as_mut_slice())?;
 
         let mapper: u16 =
-            (flags7.mapper_mid_nibble() as u16) << 4 | flags6.mapper_low_nibble() as u16;
+            ((flags7.mapper_mid_nibble() as u16) << 4) | (flags6.mapper_low_nibble() as u16);
 
         Ok(Self {
             prg_rom,
@@ -173,9 +172,9 @@ impl RomImage {
         }
 
         let mapper_msb = reader.read_u8()?;
-        let _mapper: u16 = (mapper_msb as u16 & 0xf) << 8
-            | (flags7.mapper_mid_nibble() as u16) << 4
-            | flags6.mapper_low_nibble() as u16;
+        let _mapper: u16 = ((mapper_msb as u16 & 0xf) << 8)
+            | ((flags7.mapper_mid_nibble() as u16) << 4)
+            | (flags6.mapper_low_nibble() as u16);
         let _submapper = mapper_msb >> 4;
         let _rom_size_msb = reader.read_u8()?;
 
@@ -183,6 +182,6 @@ impl RomImage {
     }
 }
 
-pub fn ntsc_system<Mapper: BusDevice>(mapper: Mapper) -> System<RP2A03, Mapper> {
-    System::new(RP2A03::new(), 12, mapper)
+pub fn ntsc_system<Mapper: BusDevice + Send + 'static>(mapper: Mapper) -> System<RP2A03, Mapper> {
+    System::new(RP2A03::new(), mapper)
 }

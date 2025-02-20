@@ -2,6 +2,7 @@
 name = "feo6502"
 version = "0.1.0"
 edition = "2021"
+default-run = "feo6502"
 
 [dependencies]
 bitfields = "0.12"
@@ -9,5 +10,20 @@ bitflags = "2.8"
 byteorder = "1.5"
 strum = "0.26"
 strum_macros = "0.26"
+wgpu = "24.0"
+winit = "0.30"
+
+pollster = "0.4"
 
 [dev-dependencies]
+
+[profile.release]
+# debug = true
+strip = "debuginfo"
+opt-level = "z"
+# strip = true
+codegen-units = 1
+lto = "fat"
+
+[build]
+rustflags = ["-C", "target-cpu=native"]
