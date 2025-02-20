@@ -1,17 +1,5 @@
-use std::{
-    fs::File,
-    sync::{mpsc::Receiver, Arc, Condvar, Mutex},
-    thread,
-    time::{self, Duration, Instant},
-};
+use std::sync::Arc;
 
-use feo6502::{
-    famicom::{
-        mapper::mapper_for,
-        rom::{ntsc_system, RomImage},
-    },
-    Clock,
-};
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
@@ -114,7 +102,7 @@ impl RenderState {
                 view: &texture_view,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                     store: wgpu::StoreOp::Store,
                 },
             })],
@@ -157,7 +145,7 @@ impl ApplicationHandler for App {
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
-        window_id: winit::window::WindowId,
+        _window_id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
         let state = self.state.as_mut().unwrap();
@@ -179,7 +167,7 @@ impl ApplicationHandler for App {
 }
 
 fn main() {
-    // let nestest = RomImage::load(File::open("nestest.nes").unwrap()).unwrap();
+    // let nestest = RomImage::load(File::open("nes-test-roms/other/").unwrap()).unwrap();
     // const MASTER_CLOCK_RATE: u64 = 236_250_000 / 11;
     // let (mut master_clock, clock_signal) = Clock::<MASTER_CLOCK_RATE>::new();
     // let mut system = ntsc_system(mapper_for(nestest.clone()));
@@ -194,7 +182,7 @@ fn main() {
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let mut nes = App::default();
-    event_loop.run_app(&mut nes);
+    event_loop.run_app(&mut nes).unwrap();
     // let fk = ActiveEventLoop::create_window(&self, window_attributes) event_loop.create_window();
 
     // mas

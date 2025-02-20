@@ -8,7 +8,7 @@ use std::{
     // ops::{self},
     // str::FromStr,
     sync::{
-        atomic::{AtomicBool, AtomicU8, Ordering},
+        atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, SendError, SyncSender},
         Arc,
     },
@@ -17,14 +17,13 @@ use std::{
 };
 
 use devices::{BusDevice, RamBank};
-use famicom::NesLogger;
 use isa6502::*;
 
 pub mod devices;
 pub mod famicom;
 pub mod isa6502;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub struct Address(u16);
 
 impl Address {
@@ -154,31 +153,14 @@ pub trait Bus {
     fn write(&mut self, address: Address, data: u8);
 }
 
-pub struct System<CPU: Cpu, Mapper: BusDevice> {
+pub struct System<CPU: Cpu, BUS: Bus> {
     cpu: CPU,
-    bus: SystemBus<Mapper>,
+    bus: BUS,
 }
 
-struct SystemBus<Mapper: BusDevice> {
-    ram: RamBank<{ 2 * 1024 }>,
-    mapper: Mapper,
-}
-
-impl<Mapper: BusDevice> SystemBus<Mapper> {
-    pub fn new(mapper: Mapper) -> Self {
-        Self {
-            ram: RamBank::new(AddressMask::from_block(Address(0), 2, 2)),
-            mapper,
-        }
-    }
-}
-
-impl<CPU: Cpu + Send + 'static, Mapper: BusDevice + Send + 'static> System<CPU, Mapper> {
-    pub fn new(cpu: CPU, mapper: Mapper) -> Self {
-        Self {
-            cpu,
-            bus: SystemBus::new(mapper),
-        }
+impl<CPU: Cpu + Send + 'static, BUS: Bus + Send + 'static> System<CPU, BUS> {
+    pub fn new(cpu: CPU, bus: BUS) -> Self {
+        Self { cpu, bus }
     }
 
     pub fn clock_pulse(&mut self) {
@@ -197,26 +179,12 @@ impl<CPU: Cpu + Send + 'static, Mapper: BusDevice + Send + 'static> System<CPU, 
     }
 }
 
-impl<Mapper: BusDevice> Bus for SystemBus<Mapper> {
-    fn read(&self, address: Address) -> u8 {
-        self.ram
-            .read(address)
-            .unwrap_or_else(|| self.mapper.read(address).unwrap())
-    }
-
-    fn write(&mut self, address: Address, data: u8) {
-        self.ram.write(address, data);
-        self.mapper.write(address, data);
-    }
-}
-
 pub struct Clock<const CLOCK_RATE: u64> {
     oscillator: SyncSender<u64>,
 }
 
 impl<const CLOCK_RATE: u64> Clock<CLOCK_RATE> {
     pub fn new() -> (Self, Receiver<u64>) {
-        let one_frame = 1789733 / 60;
         let (oscillator, signal) = mpsc::sync_channel::<u64>(1);
         (Self { oscillator }, signal)
     }
@@ -227,9 +195,9 @@ impl<const CLOCK_RATE: u64> Clock<CLOCK_RATE> {
 
     pub fn run(&mut self) -> Arc<ClockControls> {
         let clock_control = Arc::new(ClockControls {
-            multiplier: AtomicU8::new(0),
-            divisor: AtomicU8::new(0),
-            running: AtomicBool::new(true),
+            // multiplier: AtomicU8::new(0),
+            // divisor: AtomicU8::new(0),
+            // running: AtomicBool::new(true),
             cancel: AtomicBool::new(false),
         });
 
@@ -242,7 +210,7 @@ impl<const CLOCK_RATE: u64> Clock<CLOCK_RATE> {
             while !internal_control.cancel.load(Ordering::Relaxed) {
                 let catchup_cycles =
                     ((Instant::now() - start).as_secs_f64() * CLOCK_RATE as f64) as u64 - cycles;
-                if (catchup_cycles > 0) {
+                if catchup_cycles > 0 {
                     oscillator.send(catchup_cycles).unwrap();
                     cycles += catchup_cycles;
                 }
@@ -261,9 +229,9 @@ impl<const CLOCK_RATE: u64> Clock<CLOCK_RATE> {
 }
 
 pub struct ClockControls {
-    multiplier: AtomicU8,
-    divisor: AtomicU8,
-    running: AtomicBool,
+    // multiplier: AtomicU8,
+    // divisor: AtomicU8,
+    // running: AtomicBool,
     cancel: AtomicBool,
 }
 
@@ -349,7 +317,7 @@ mod tests {
 
         let mut system = ntsc_system(mapper_for(nestest));
 
-        let f = File::open("nestest.log").unwrap();
+        let f = File::open("nes-test-roms/other/nestest.log").unwrap();
         let reader = io::BufReader::new(f);
         let lines = reader.lines();
 
@@ -363,7 +331,7 @@ mod tests {
             let mut log = loop {
                 system.clock_pulse();
                 let log = system.log();
-                println!("{}", log);
+                // println!("{}", log);
                 // Opcode isn't fetched until the following cycle, so this is a cheap hack to correct the opcode
                 if log.cycles == expected_log.cycles {
                     break log;
@@ -396,7 +364,8 @@ mod tests {
     }
 
     fn load_nestest() -> RomImage {
-        let mut nestest = RomImage::load(File::open("nestest.nes").unwrap()).unwrap();
+        let mut nestest =
+            RomImage::load(File::open("nes-test-roms/other/nestest.nes").unwrap()).unwrap();
         // Change reset vector to force automation mode for the rom
         nestest.prg_rom[0x3FFD] = 0xC0;
         nestest.prg_rom[0x3FFC] = 0x00;

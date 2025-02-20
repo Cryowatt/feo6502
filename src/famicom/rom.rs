@@ -6,7 +6,7 @@ use strum_macros::FromRepr;
 
 use crate::{BusDevice, System};
 
-use super::RP2A03;
+use super::{SystemBus, RP2A03};
 
 macro_rules! from_bits {
     ( $enum:ident, $repr:ty ) => {
@@ -182,6 +182,8 @@ impl RomImage {
     }
 }
 
-pub fn ntsc_system<Mapper: BusDevice + Send + 'static>(mapper: Mapper) -> System<RP2A03, Mapper> {
-    System::new(RP2A03::new(), mapper)
+pub fn ntsc_system<Mapper: BusDevice + Send + 'static>(
+    mapper: Mapper,
+) -> System<RP2A03, SystemBus<Mapper>> {
+    System::new(RP2A03::new(), SystemBus::new(mapper))
 }

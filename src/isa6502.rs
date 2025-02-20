@@ -7,7 +7,7 @@ use crate::{Address, Bus};
 pub mod addressing;
 pub mod instructions;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Registers {
     pub pc: Address,
     pub stack: u8,
@@ -17,21 +17,6 @@ pub struct Registers {
     pub p: StatusFlags,
     pub address_buffer: Address,
     pub operand: u8,
-}
-
-impl Registers {
-    pub fn new() -> Self {
-        Self {
-            pc: Address(0),
-            stack: 0,
-            a: 0,
-            x: 0,
-            y: 0,
-            p: StatusFlags::Default,
-            address_buffer: Address(0),
-            operand: 0,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -84,17 +69,23 @@ pub trait Decode: MicrocodeControl + AddressMode {
 
 bitflags! {
     #[derive(Debug, Clone, Copy)]
-    pub struct StatusFlags:u8{
+    pub struct StatusFlags : u8{
         // NV1BDIZC
         const C = 0b0000_0001;
         const Z = 0b0000_0010;
         const I = 0b0000_0100;
         const D = 0b0000_1000;
         const B = 0b0001_0000;
-        const Default = 0b0010_0100;
+        const Reserved = 0b0010_0000;
         const STACK_MASK = 0b1100_1111;
         const V = 0b0100_0000;
         const N = 0b1000_0000;
+    }
+}
+
+impl Default for StatusFlags {
+    fn default() -> Self {
+        Self::Reserved | Self::I
     }
 }
 

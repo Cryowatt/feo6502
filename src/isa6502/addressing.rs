@@ -186,7 +186,7 @@ impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: ReadInst
 impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: ReadWriteInstruction>
     AddressingMode<CPU, INST, ReadWrite> for Stack
 {
-    fn enqueue(cpu: &mut CPU) {
+    fn enqueue(_cpu: &mut CPU) {
         todo!()
     }
 }
@@ -231,15 +231,15 @@ impl<CPU: MicrocodeControl + AddressMode + MicrocodeInstructions, INST: ReadWrit
             _inst: PhantomData<INST>,
         }
 
-        impl<INST: ReadWriteInstruction> ReadWriteInstruction for WithAccumulator<INST> {
-            fn execute(registers: &mut Registers, _: &mut u8) {
+        impl<INST: ReadWriteInstruction> ReadInstruction for WithAccumulator<INST> {
+            fn execute(registers: &mut Registers, _: &u8) {
                 let mut data = registers.a;
                 INST::execute(registers, &mut data);
                 registers.a = data;
             }
         }
 
-        cpu.queue_read_write::<WithAccumulator<INST>>(CPU::pc);
+        cpu.queue_read::<WithAccumulator<INST>>(CPU::pc);
         cpu.queue_decode();
     }
 }

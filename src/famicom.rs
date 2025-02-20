@@ -6,6 +6,7 @@ use crate::{
 };
 
 pub mod mapper;
+pub mod ppu;
 pub mod rom;
 
 type Microcode<CPU> = (fn(&mut CPU) -> Address, BusDirection<CPU>);
@@ -131,7 +132,7 @@ impl Decode for RP2A03 {
         } else {
             match (row, column, block) {
                 // Control
-                (0x2, 0x0, _) => Self::queue_brk,
+                (0x0, 0x0, _) => Self::queue_brk,
                 (0x2, 0x0, _) => Self::queue_jsr,
                 (0x4, 0x0, _) => Self::queue_rti,
                 (0x6, 0x0, _) => Self::queue_rts,
@@ -386,7 +387,7 @@ impl MicrocodeInstructions for RP2A03 {
 impl RP2A03 {
     pub fn new() -> Self {
         let mut cpu = Self {
-            registers: Registers::new(),
+            registers: Registers::default(),
             timing: VecDeque::with_capacity(8),
             decode_cache: [None; 256],
             opcode: 0,
@@ -405,7 +406,7 @@ impl RP2A03 {
 
     pub fn reset(&mut self) {
         self.registers.stack = 0;
-        self.registers.p.set(StatusFlags::Default, true);
+        self.registers.p.set(StatusFlags::default(), true);
         self.clear_microcode();
         self.queue_read::<NOP>(Self::pc_inc);
         self.queue_read::<NOP>(Self::pc_inc);
@@ -439,11 +440,44 @@ impl Cpu for RP2A03 {
     }
 }
 
+pub struct SystemBus<Mapper: BusDevice> {
+    ram: RamBank<{ 2 * 1024 }>,
+    mapper: Mapper,
+}
+
+impl<Mapper: BusDevice> SystemBus<Mapper> {
+    pub fn new(mapper: Mapper) -> Self {
+        Self {
+            ram: RamBank::new(AddressMask::from_block(Address(0), 2, 2)),
+            mapper,
+        }
+    }
+}
+impl<Mapper: BusDevice> Bus for SystemBus<Mapper> {
+    fn read(&self, address: Address) -> u8 {
+        self.ram
+            .read(address)
+            .unwrap_or_else(|| self.mapper.read(address).unwrap())
+    }
+
+    fn write(&mut self, address: Address, data: u8) {
+        if [
+            self.ram.write(address, data),
+            self.mapper.write(address, data),
+        ]
+        .iter()
+        .all(|success| !success)
+        {
+            panic!("No device for {:?}", address);
+        }
+    }
+}
+
 pub trait NesLogger {
     fn log(&self) -> NesTestLogEntry;
 }
 
-impl<Mapper: BusDevice> NesLogger for System<RP2A03, Mapper> {
+impl<BUS: Bus> NesLogger for System<RP2A03, BUS> {
     fn log(&self) -> NesTestLogEntry {
         NesTestLogEntry {
             pc: self.cpu.registers.pc,
@@ -453,7 +487,7 @@ impl<Mapper: BusDevice> NesLogger for System<RP2A03, Mapper> {
             y: self.cpu.registers.y,
             p: self.cpu.registers.p.bits(),
             stack: self.cpu.registers.stack,
-            cycles: self.cpu.cycles,
+            cycles: self.cpu.cycles / RP2A03::CLOCK_DIVISOR,
         }
     }
 }

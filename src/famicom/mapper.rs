@@ -44,5 +44,7 @@ impl BusDevice for Nrom {
     }
 
     #[inline]
-    fn write(&mut self, _address: crate::Address, _data: u8) {}
+    fn write(&mut self, _address: crate::Address, _data: u8) -> bool {
+        false
+    }
 }
