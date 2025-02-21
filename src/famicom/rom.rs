@@ -23,7 +23,7 @@ macro_rules! from_bits {
 }
 
 #[repr(u8)]
-#[derive(FromRepr, Clone, Copy)]
+#[derive(FromRepr, Clone, Copy, Debug)]
 pub enum NametableLayout {
     Vertical = 0,
     Horizontal = 1,

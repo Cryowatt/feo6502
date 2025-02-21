@@ -7,6 +7,7 @@ use std::{
     // num::ParseIntError,
     // ops::{self},
     // str::FromStr,
+    ops::Shl,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, SendError, SyncSender},
@@ -103,6 +104,12 @@ impl ops::Index<Address> for Vec<u8> {
     }
 }
 
+impl ops::IndexMut<Address> for Vec<u8> {
+    fn index_mut(&mut self, idx: Address) -> &mut Self::Output {
+        &mut self[idx.0 as usize]
+    }
+}
+
 impl ops::Index<Address> for [u8] {
     type Output = u8;
     fn index(&self, idx: Address) -> &Self::Output {
@@ -124,6 +131,7 @@ impl str::FromStr for Address {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct AddressMask {
     start_address: Address,
     address_mask: u16,
@@ -131,7 +139,7 @@ pub struct AddressMask {
 }
 
 impl AddressMask {
-    fn from_block(start_address: Address, prefix_bits: u8, mirror_bits: u8) -> Self {
+    const fn from_block(start_address: Address, prefix_bits: u8, mirror_bits: u8) -> Self {
         Self {
             start_address,
             address_mask: !(0xffff >> prefix_bits),
@@ -147,6 +155,27 @@ impl AddressMask {
         }
     }
 }
+
+#[allow(non_snake_case)]
+pub trait ByteUnits {
+    const K: Self;
+
+    fn KiB(self) -> Self;
+}
+
+macro_rules! byte_units {
+    ($unit:tt) => {
+        impl ByteUnits for $unit {
+            const K: Self = 1024;
+
+            fn KiB(self) -> Self {
+                self * Self::K
+            }
+        }
+    };
+}
+
+byte_units!(usize);
 
 pub trait Bus {
     fn read(&self, address: Address) -> u8;
@@ -248,12 +277,13 @@ mod tests {
     use std::{
         fs::File,
         io::{self, BufRead},
+        path::Path,
     };
 
     use strum::ParseError;
 
     use crate::famicom::{
-        mapper::mapper_for,
+        mapper::{mapper_for, Nrom},
         rom::{ntsc_system, RomImage},
         *,
     };
@@ -311,8 +341,91 @@ mod tests {
         Cycles(num::ParseIntError),
     }
 
+    fn blargg_test<P: AsRef<Path>>(path: P) {
+        // Output at $6000
+        // ---------------
+        // All text output is written starting at $6004, with a zero-byte
+        // terminator at the end. As more text is written, the terminator is moved
+        // forward, so an emulator can print the current text at any time.
+
+        // The test status is written to $6000. $80 means the test is running, $81
+        // means the test needs the reset button pressed, but delayed by at least
+        // 100 msec from now. $00-$7F means the test has completed and given that
+        // result code.
+
+        // To allow an emulator to know when one of these tests is running and the
+        // data at $6000+ is valid, as opposed to some other NES program, $DE $B0
+        // $G1 is written to $6001-$6003.
+
+        let mut test_rom = RomImage::load(File::open(path).unwrap()).unwrap();
+        let mut system = ntsc_system(Nrom::new_with_ram(test_rom));
+
+        // Test rom initialization
+        loop {
+            system.clock_pulse();
+            let maybe_debug = [
+                system.bus.read(Address(0x6001)),
+                system.bus.read(Address(0x6002)),
+                system.bus.read(Address(0x6003)),
+            ];
+
+            if maybe_debug == [0xDE, 0xB0, 0x61] {
+                break;
+            }
+        }
+
+        // Cycle until status flag changes from 0x80 (running)
+        while system.bus.read(Address(0x6000)) == 0x80 {
+            system.clock_pulse();
+        }
+
+        for _ in 0..10000000 {
+            system.clock_pulse();
+        }
+
+        for c in 0..1000 {
+            system.clock_pulse();
+            if c % 12 == 0 {}
+        }
+
+        println!("{:?}", system.log());
+        println!("{:?}", system.bus);
+
+        let test_status = system.bus.read(Address(0x6000));
+
+        let mut error = String::new();
+        let mut error_pointer = Address(0x6004);
+        loop {
+            let c = system.bus.read(error_pointer);
+            error_pointer.increment();
+
+            if c == 0 {
+                break;
+            }
+
+            error.push(c as char);
+        }
+
+        assert_eq!(
+            test_status, 0,
+            "Test status returned failure {:02x}: {}",
+            test_status, error
+        );
+
+        panic!("FK");
+    }
+
     #[test]
-    fn decode_validation() {
+    fn instruction_basics() {
+        blargg_test("nes-test-roms/instr_test-v5/rom_singles/01-basics.nes");
+    }
+    #[test]
+    fn instruction_implied() {
+        blargg_test("nes-test-roms/instr_test-v5/rom_singles/02-implied.nes");
+    }
+
+    #[test]
+    fn nes_test() {
         let nestest = load_nestest();
 
         let mut system = ntsc_system(mapper_for(nestest));

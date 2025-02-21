@@ -440,36 +440,118 @@ impl Cpu for RP2A03 {
     }
 }
 
+#[derive(Default)]
+struct Apu {}
+impl Apu {
+    const ADDRESS_MASK: AddressMask = AddressMask::from_block(Address(0x4000), 11, 0);
+}
+impl BusDevice for Apu {
+    fn read(&self, address: Address) -> Option<u8> {
+        Self::ADDRESS_MASK
+            .remap(address)
+            .map(|register| register.0 as u8)
+    }
+
+    fn write(&mut self, address: Address, data: u8) -> bool {
+        match Self::ADDRESS_MASK.remap(address) {
+            Some(_) => true,
+            None => false,
+        }
+    }
+}
+
+#[derive(Default)]
+struct Ppu {}
+impl Ppu {
+    const ADDRESS_MASK: AddressMask = AddressMask::from_block(Address(0x2000), 3, 10);
+
+    fn ctrl() {}
+}
+impl BusDevice for Ppu {
+    fn read(&self, address: Address) -> Option<u8> {
+        Self::ADDRESS_MASK
+            .remap(address)
+            .map(|register| match register.0 {
+                0 => unimplemented!(),
+                1 => unimplemented!(),
+                2 => unimplemented!(),
+                3 => unimplemented!(),
+                4 => unimplemented!(),
+                5 => unimplemented!(),
+                6 => unimplemented!(),
+                7 => unimplemented!(),
+                _ => unreachable!(),
+            })
+    }
+
+    fn write(&mut self, address: Address, data: u8) -> bool {
+        match Self::ADDRESS_MASK.remap(address) {
+            Some(Address(0)) => unimplemented!(),
+            Some(Address(1)) => unimplemented!(),
+            Some(Address(2)) => unimplemented!(),
+            Some(Address(3)) => unimplemented!(),
+            Some(Address(4)) => unimplemented!(),
+            Some(Address(5)) => unimplemented!(),
+            Some(Address(6)) => unimplemented!(),
+            Some(Address(7)) => unimplemented!(),
+            _ => false,
+        }
+    }
+}
+
 pub struct SystemBus<Mapper: BusDevice> {
-    ram: RamBank<{ 2 * 1024 }>,
+    ram: RamBank<{ 2 * usize::K }>,
+    apu: Apu,
+    ppu: Ppu,
     mapper: Mapper,
 }
 
 impl<Mapper: BusDevice> SystemBus<Mapper> {
     pub fn new(mapper: Mapper) -> Self {
         Self {
-            ram: RamBank::new(AddressMask::from_block(Address(0), 2, 2)),
+            ram: RamBank::new(AddressMask::from_block(Address(0), 3, 2)),
+            apu: Default::default(),
+            ppu: Default::default(),
             mapper,
         }
     }
 }
+
 impl<Mapper: BusDevice> Bus for SystemBus<Mapper> {
     fn read(&self, address: Address) -> u8 {
-        self.ram
-            .read(address)
-            .unwrap_or_else(|| self.mapper.read(address).unwrap())
+        self.ram.read(address).unwrap_or_else(|| {
+            self.ppu.read(address).unwrap_or_else(|| {
+                self.apu.read(address).unwrap_or_else(|| {
+                    self.mapper
+                        .read(address)
+                        .unwrap_or_else(|| panic!("No device for read:{:?}", address))
+                })
+            })
+        })
     }
 
     fn write(&mut self, address: Address, data: u8) {
         if [
             self.ram.write(address, data),
+            self.ppu.write(address, data),
+            self.apu.write(address, data),
             self.mapper.write(address, data),
         ]
         .iter()
         .all(|success| !success)
         {
-            panic!("No device for {:?}", address);
+            println!("No device for write:{:?}", address);
         }
+    }
+}
+
+impl<Mapper: fmt::Debug + BusDevice> fmt::Debug for SystemBus<Mapper> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SystemBus")
+            // .field("ram", &self.ram)
+            // .field("apu", &self.apu)
+            .field("mapper", &self.mapper)
+            .finish()
     }
 }
 

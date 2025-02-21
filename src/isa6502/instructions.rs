@@ -53,6 +53,7 @@ pub struct PHP;
 impl WriteInstruction for PHP {
     fn execute(registers: &mut Registers, data: &mut u8) {
         *data = (registers.p | !StatusFlags::STACK_MASK).bits();
+        // *data = 0x30;
     }
 }
 

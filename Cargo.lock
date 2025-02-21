@@ -405,6 +405,7 @@ dependencies = [
  "bitfields",
  "bitflags 2.8.0",
  "byteorder",
+ "num-traits",
  "pollster",
  "strum",
  "strum_macros",
