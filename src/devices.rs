@@ -1,7 +1,7 @@
 use crate::{Address, AddressMask};
 
 pub trait BusDevice {
-    fn read(&self, address: Address) -> Option<u8>;
+    fn read(&mut self, address: Address) -> Option<u8>;
     fn write(&mut self, address: Address, data: u8) -> bool;
 }
 
@@ -20,7 +20,7 @@ impl<const SIZE: usize> RamBank<SIZE> {
 }
 
 impl<const SIZE: usize> BusDevice for RamBank<SIZE> {
-    fn read(&self, address: Address) -> Option<u8> {
+    fn read(&mut self, address: Address) -> Option<u8> {
         self.map
             .remap(address)
             .map(|ram_address| self.memory[ram_address])

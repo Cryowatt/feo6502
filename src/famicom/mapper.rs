@@ -1,18 +1,16 @@
-use std::fmt;
-
 use crate::{Address, AddressMask, BusDevice};
 
 use super::rom::{NametableLayout, RomImage};
 use crate::ByteUnits as _;
 
-pub fn mapper_for(rom_image: RomImage) -> impl BusDevice {
+pub fn mapper_from(rom_image: &RomImage) -> (impl BusDevice, impl BusDevice) {
     match rom_image.mapper {
-        0 => Nrom::new(rom_image),
+        0 => (NromPrgMapper::new(rom_image), NromChrMapper::new(rom_image)),
         _ => unimplemented!(),
     }
 }
 
-pub struct Nrom {
+pub struct NromPrgMapper {
     prg_ram_map: Option<AddressMask>,
     prg_ram: Vec<u8>,
     prg_rom_map: AddressMask,
@@ -20,21 +18,8 @@ pub struct Nrom {
     nametable_layout: NametableLayout,
 }
 
-impl fmt::Debug for Nrom {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let ram = String::from_utf8(self.prg_ram.clone());
-        f.debug_struct("Nrom")
-            // .field("prg_ram_map", &self.prg_ram_map)
-            .field("prg_ram", &ram)
-            // .field("prg_rom_map", &self.prg_rom_map)
-            // .field("prg_rom", &self.prg_rom)
-            .field("nametable_layout", &self.nametable_layout)
-            .finish()
-    }
-}
-
-impl Nrom {
-    pub fn new(rom_image: RomImage) -> Self {
+impl NromPrgMapper {
+    pub fn new(rom_image: &RomImage) -> Self {
         if rom_image.prg_ram_size > 0 {
             unimplemented!("No PRG RAM support currently");
         }
@@ -49,12 +34,12 @@ impl Nrom {
             prg_ram_map: None,
             prg_ram: vec![],
             prg_rom_map: AddressMask::from_block(Address(0x8000), 1, mirror_bits),
-            prg_rom: rom_image.prg_rom,
+            prg_rom: rom_image.prg_rom.clone(),
             nametable_layout: rom_image.nametable_layout,
         }
     }
 
-    pub fn new_with_ram(rom_image: RomImage) -> Self {
+    pub fn new_with_ram(rom_image: &RomImage) -> Self {
         let mirror_bits = if rom_image.prg_rom.len() > 16.KiB() {
             0
         } else {
@@ -65,15 +50,15 @@ impl Nrom {
             prg_ram_map: Some(AddressMask::from_block(Address(0x6000), 3, 0)),
             prg_ram: vec![0u8; 8.KiB()],
             prg_rom_map: AddressMask::from_block(Address(0x8000), 1, mirror_bits),
-            prg_rom: rom_image.prg_rom,
+            prg_rom: rom_image.prg_rom.clone(),
             nametable_layout: rom_image.nametable_layout,
         }
     }
 }
 
-impl BusDevice for Nrom {
+impl BusDevice for NromPrgMapper {
     #[inline]
-    fn read(&self, address: crate::Address) -> Option<u8> {
+    fn read(&mut self, address: crate::Address) -> Option<u8> {
         self.prg_rom_map
             .remap(address)
             .map(|prg_address| self.prg_rom[prg_address])
@@ -94,5 +79,42 @@ impl BusDevice for Nrom {
         } else {
             false
         }
+    }
+}
+
+pub struct NromChrMapper {
+    chr_rom: [u8; 8 * usize::K],
+    chr_rom_mask: AddressMask,
+}
+
+impl NromChrMapper {
+    pub fn new(rom_image: &RomImage) -> Self {
+        assert_eq!(
+            rom_image.chr_rom.len(),
+            8.KiB(),
+            "NROM CHR ROM must be 8KiB"
+        );
+        Self {
+            chr_rom: rom_image
+                .chr_rom
+                .clone()
+                .try_into()
+                .expect("CHR is 8KiB for NROM"),
+            chr_rom_mask: AddressMask::from_block(Address(0), 3, 0),
+        }
+    }
+}
+
+impl BusDevice for NromChrMapper {
+    #[inline]
+    fn read(&mut self, address: crate::Address) -> Option<u8> {
+        self.chr_rom_mask
+            .remap(address)
+            .map(|chr_address| self.chr_rom[chr_address])
+    }
+
+    #[inline]
+    fn write(&mut self, address: crate::Address, _: u8) -> bool {
+        self.chr_rom_mask.remap(address).is_some()
     }
 }

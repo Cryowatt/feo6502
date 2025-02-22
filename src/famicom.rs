@@ -1,10 +1,14 @@
 use std::collections::VecDeque;
 
+use apu::Apu;
+use ppu::Ppu;
+
 use crate::{
     isa6502::{addressing::*, instructions::*, *},
     *,
 };
 
+pub mod apu;
 pub mod mapper;
 pub mod ppu;
 pub mod rom;
@@ -440,88 +444,29 @@ impl Cpu for RP2A03 {
     }
 }
 
-#[derive(Default)]
-struct Apu {}
-impl Apu {
-    const ADDRESS_MASK: AddressMask = AddressMask::from_block(Address(0x4000), 11, 0);
-}
-impl BusDevice for Apu {
-    fn read(&self, address: Address) -> Option<u8> {
-        Self::ADDRESS_MASK
-            .remap(address)
-            .map(|register| register.0 as u8)
-    }
-
-    fn write(&mut self, address: Address, data: u8) -> bool {
-        match Self::ADDRESS_MASK.remap(address) {
-            Some(_) => true,
-            None => false,
-        }
-    }
-}
-
-#[derive(Default)]
-struct Ppu {}
-impl Ppu {
-    const ADDRESS_MASK: AddressMask = AddressMask::from_block(Address(0x2000), 3, 10);
-
-    fn ctrl() {}
-}
-impl BusDevice for Ppu {
-    fn read(&self, address: Address) -> Option<u8> {
-        Self::ADDRESS_MASK
-            .remap(address)
-            .map(|register| match register.0 {
-                0 => unimplemented!(),
-                1 => unimplemented!(),
-                2 => unimplemented!(),
-                3 => unimplemented!(),
-                4 => unimplemented!(),
-                5 => unimplemented!(),
-                6 => unimplemented!(),
-                7 => unimplemented!(),
-                _ => unreachable!(),
-            })
-    }
-
-    fn write(&mut self, address: Address, data: u8) -> bool {
-        match Self::ADDRESS_MASK.remap(address) {
-            Some(Address(0)) => unimplemented!(),
-            Some(Address(1)) => unimplemented!(),
-            Some(Address(2)) => unimplemented!(),
-            Some(Address(3)) => unimplemented!(),
-            Some(Address(4)) => unimplemented!(),
-            Some(Address(5)) => unimplemented!(),
-            Some(Address(6)) => unimplemented!(),
-            Some(Address(7)) => unimplemented!(),
-            _ => false,
-        }
-    }
-}
-
-pub struct SystemBus<Mapper: BusDevice> {
+pub struct SystemBus<PrgMapper: BusDevice, ChrMapper: BusDevice> {
     ram: RamBank<{ 2 * usize::K }>,
     apu: Apu,
-    ppu: Ppu,
-    mapper: Mapper,
+    ppu: Ppu<ChrMapper>,
+    mapper: PrgMapper,
 }
 
-impl<Mapper: BusDevice> SystemBus<Mapper> {
-    pub fn new(mapper: Mapper) -> Self {
+impl<PrgMapper: BusDevice, ChrMapper: BusDevice> SystemBus<PrgMapper, ChrMapper> {
+    pub fn new(prg_mapper: PrgMapper, chr_mapper: ChrMapper) -> Self {
         Self {
             ram: RamBank::new(AddressMask::from_block(Address(0), 3, 2)),
             apu: Default::default(),
-            ppu: Default::default(),
-            mapper,
+            ppu: Ppu::new(chr_mapper),
+            mapper: prg_mapper,
         }
     }
 }
 
-impl<Mapper: BusDevice> Bus for SystemBus<Mapper> {
-    fn read(&self, address: Address) -> u8 {
-        self.ram.read(address).unwrap_or_else(|| {
-            self.ppu.read(address).unwrap_or_else(|| {
-                self.apu.read(address).unwrap_or_else(|| {
+impl<PrgMapper: BusDevice, ChrMapper: BusDevice> Bus for SystemBus<PrgMapper, ChrMapper> {
+    fn read(&mut self, address: Address) -> u8 {
+        self.ram.read(address).unwrap_or_else(move || {
+            self.ppu.read(address).unwrap_or_else(move || {
+                self.apu.read(address).unwrap_or_else(move || {
                     self.mapper
                         .read(address)
                         .unwrap_or_else(|| panic!("No device for read:{:?}", address))
@@ -545,7 +490,9 @@ impl<Mapper: BusDevice> Bus for SystemBus<Mapper> {
     }
 }
 
-impl<Mapper: fmt::Debug + BusDevice> fmt::Debug for SystemBus<Mapper> {
+impl<PrgMapper: fmt::Debug + BusDevice, ChrMapper: BusDevice> fmt::Debug
+    for SystemBus<PrgMapper, ChrMapper>
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SystemBus")
             // .field("ram", &self.ram)

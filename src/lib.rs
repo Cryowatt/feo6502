@@ -3,11 +3,6 @@
 use core::{fmt, num, ops, str};
 
 use std::{
-    // fmt,
-    // num::ParseIntError,
-    // ops::{self},
-    // str::FromStr,
-    ops::Shl,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, SendError, SyncSender},
@@ -23,6 +18,8 @@ use isa6502::*;
 pub mod devices;
 pub mod famicom;
 pub mod isa6502;
+
+mod macros;
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub struct Address(u16);
@@ -178,7 +175,7 @@ macro_rules! byte_units {
 byte_units!(usize);
 
 pub trait Bus {
-    fn read(&self, address: Address) -> u8;
+    fn read(&mut self, address: Address) -> u8;
     fn write(&mut self, address: Address, data: u8);
 }
 
@@ -283,7 +280,7 @@ mod tests {
     use strum::ParseError;
 
     use crate::famicom::{
-        mapper::{mapper_for, Nrom},
+        mapper::{mapper_from, NromChrMapper, NromPrgMapper},
         rom::{ntsc_system, RomImage},
         *,
     };
@@ -357,8 +354,11 @@ mod tests {
         // data at $6000+ is valid, as opposed to some other NES program, $DE $B0
         // $G1 is written to $6001-$6003.
 
-        let mut test_rom = RomImage::load(File::open(path).unwrap()).unwrap();
-        let mut system = ntsc_system(Nrom::new_with_ram(test_rom));
+        let test_rom = &RomImage::load(File::open(path).unwrap()).unwrap();
+        let mut system = ntsc_system(
+            NromPrgMapper::new_with_ram(test_rom),
+            NromChrMapper::new(test_rom),
+        );
 
         // Test rom initialization
         loop {
@@ -389,7 +389,7 @@ mod tests {
         }
 
         println!("{:?}", system.log());
-        println!("{:?}", system.bus);
+        // println!("{:?}", system.bus);
 
         let test_status = system.bus.read(Address(0x6000));
 
@@ -426,9 +426,10 @@ mod tests {
 
     #[test]
     fn nes_test() {
-        let nestest = load_nestest();
+        let nestest = &load_nestest();
+        let (prg_mapper, chr_mapper) = mapper_from(nestest);
 
-        let mut system = ntsc_system(mapper_for(nestest));
+        let mut system = ntsc_system(prg_mapper, chr_mapper);
 
         let f = File::open("nes-test-roms/other/nestest.log").unwrap();
         let reader = io::BufReader::new(f);
@@ -487,12 +488,13 @@ mod tests {
 
     #[bench]
     fn performance_benchmark(b: &mut test::Bencher) {
-        let nestest = load_nestest();
+        let nestest = &load_nestest();
 
         const CYCLE_TARGET: u32 = 26554;
         b.bytes = CYCLE_TARGET as u64;
         b.iter(|| {
-            let mut system = ntsc_system(mapper_for(nestest.clone()));
+            let (prg_mapper, chr_mapper) = mapper_from(nestest);
+            let mut system = ntsc_system(prg_mapper, chr_mapper);
             for _ in 0..CYCLE_TARGET {
                 system.clock_pulse();
             }

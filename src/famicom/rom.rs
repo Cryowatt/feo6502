@@ -4,23 +4,9 @@ use bitfields::bitfield;
 use byteorder::{BigEndian, ByteOrder as _, ReadBytesExt};
 use strum_macros::FromRepr;
 
-use crate::{BusDevice, System};
+use crate::{macros::from_bits, BusDevice, System};
 
 use super::{SystemBus, RP2A03};
-
-macro_rules! from_bits {
-    ( $enum:ident, $repr:ty ) => {
-        impl $enum {
-            const fn from_bits(bits: $repr) -> Self {
-                Self::from_repr(bits).expect("Enum value should be valid")
-            }
-
-            const fn into_bits(self) -> $repr {
-                self as $repr
-            }
-        }
-    };
-}
 
 #[repr(u8)]
 #[derive(FromRepr, Clone, Copy, Debug)]
@@ -182,8 +168,9 @@ impl RomImage {
     }
 }
 
-pub fn ntsc_system<Mapper: BusDevice + Send + 'static>(
-    mapper: Mapper,
-) -> System<RP2A03, SystemBus<Mapper>> {
-    System::new(RP2A03::new(), SystemBus::new(mapper))
+pub fn ntsc_system<PrgMapper: BusDevice + Send + 'static, ChrMapper: BusDevice + Send + 'static>(
+    prg_mapper: PrgMapper,
+    chr_mapper: ChrMapper,
+) -> System<RP2A03, SystemBus<PrgMapper, ChrMapper>> {
+    System::new(RP2A03::new(), SystemBus::new(prg_mapper, chr_mapper))
 }
